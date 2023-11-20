@@ -252,7 +252,7 @@ class CrossAttention(nn.Module):
     def normal_attention(self, q: torch.Tensor, k: torch.Tensor, v: torch.Tensor):
         """
         #### Normal Attention
-        
+
         :param q: are the query vectors before splitting heads, of shape `[batch_size, seq, d_attn]`
         :param k: are the query vectors before splitting heads, of shape `[batch_size, seq, d_attn]`
         :param v: are the query vectors before splitting heads, of shape `[batch_size, seq, d_attn]`
@@ -270,14 +270,15 @@ class CrossAttention(nn.Module):
         # $$\underset{seq}{softmax}\Bigg(\frac{Q K^\top}{\sqrt{d_{key}}}\Bigg)$$
         if self.is_inplace:
             half = attn.shape[0] // 2
-            attn[half :] = attn[half :].softmax(dim=-1)
-            attn[: half] = attn[: half].softmax(dim=-1)
+            softmax_attn1 = torch.nn.functional.softmax(attn[half:], dim=-1)
+            softmax_attn2 = torch.nn.functional.softmax(attn[:half], dim=-1)
+            attn_ = torch.cat((softmax_attn1, softmax_attn2))
         else:
-            attn = attn.softmax(dim=-1)
+            attn_ = attn.softmax(dim=-1)
 
         # Compute attention output
         # $$\underset{seq}{softmax}\Bigg(\frac{Q K^\top}{\sqrt{d_{key}}}\Bigg)V$$
-        out = torch.einsum('bhij,bjhd->bihd', attn, v)
+        out = torch.einsum('bhij,bjhd->bihd', attn_, v)
         # Reshape to `[batch_size, height * width, n_heads * d_head]`
         out = out.reshape(*out.shape[: 2], -1)
         # Map to `[batch_size, height * width, d_model]` with a linear layer
