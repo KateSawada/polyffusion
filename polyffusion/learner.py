@@ -11,7 +11,7 @@ from dirs import *
 from utils import nested_map
 
 
-class PolyffusionLearner:
+class Learner:
     def __init__(
         self, output_dir, model, train_dl, val_dl, optimizer, params, param_scheduler
     ):
@@ -181,6 +181,21 @@ class PolyffusionLearner:
             self.save_to_checkpoint(is_best=True)
         else:
             self.save_to_checkpoint(is_best=False)
+
+    def train_step(self, batch):
+        loss_dict = {}
+        scheduled_params= {}
+        return loss_dict, scheduled_params
+
+    def train_step(self, batch):
+        loss_dict = {}
+        scheduled_params= {}
+        return loss_dict, scheduled_params
+
+
+class PolyffusionLearner(Learner):
+    def __init__(self, output_dir, model, train_dl, val_dl, optimizer, params, param_scheduler):
+        super().__init__(output_dir, model, train_dl, val_dl, optimizer, params, param_scheduler)
 
     def train_step(self, batch):
         # people say this is the better way to set zero grad
