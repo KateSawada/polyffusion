@@ -10,6 +10,7 @@ from utils import (
     pr_mat_pitch_shift, prmat2c_to_midi_file, chd_to_onehot, chd_pitch_shift,
     chd_to_midi_file, estx_to_midi_file, pianotree_pitch_shift, prmat_to_midi_file
 )
+from polyffusion.converter import target_to_3dtarget
 
 # SEED = 7890
 # torch.manual_seed(SEED)
@@ -60,6 +61,60 @@ def collate_fn(batch, shift):
     else:
         return prmat2c, pnotree, chord, prmat
 
+def collate_fn_n_bar_vae(batch, shift):
+    def sample_shift():
+        return np.random.choice(np.arange(-6, 6), 1)[0]
+
+    prmat2c = []
+    pnotree = []
+    chord = []
+    prmat = []
+    p_grid = []  # prmat converted by converter.target_to_3dtarget()
+    song_fn = []
+    for b in batch:
+        # b[0]: seg_pnotree; b[1]: seg_pnotree_y
+        seg_prmat2c = b[0]
+        seg_pnotree = b[1]
+        seg_chord = b[2]
+        seg_prmat = b[3]
+
+        if shift:
+            shift_pitch = sample_shift()
+            seg_prmat2c = pr_mat_pitch_shift(seg_prmat2c, shift_pitch)
+            seg_pnotree = pianotree_pitch_shift(seg_pnotree, shift_pitch)
+            seg_chord = chd_pitch_shift(seg_chord, shift_pitch)
+            seg_prmat = pr_mat_pitch_shift(seg_prmat, shift_pitch)
+
+        seg_chord = chd_to_onehot(seg_chord)
+
+        prmat2c.append(seg_prmat2c)
+        pnotree.append(seg_pnotree)
+        chord.append(seg_chord)
+        prmat.append(seg_prmat)
+        p_grid.append(target_to_3dtarget(
+            seg_prmat,
+            max_note_count=16,
+            max_pitch=128,
+            min_pitch=0,
+            pitch_pad_ind=130,
+            pitch_sos_ind=128,
+            pitch_eos_ind=129,
+        ))
+
+        if len(b) > 4:
+            song_fn.append(b[4])
+
+    prmat2c = torch.Tensor(np.array(prmat2c, np.float32)).float()
+    pnotree = torch.Tensor(np.array(pnotree, np.int64)).long()
+    chord = torch.Tensor(np.array(chord, np.float32)).float()
+    prmat = torch.Tensor(np.array(prmat, np.float32)).float()
+    p_grid = torch.Tensor(np.array(p_grid, np.float32)).float()
+    # prmat = prmat.unsqueeze(1)  # (B, 1, 128, 128)
+    if len(song_fn) > 0:
+        return prmat2c, pnotree, chord, prmat, p_grid, song_fn
+    else:
+        return prmat2c, pnotree, chord, prmat, p_grid
+
 
 def get_train_val_dataloaders(
     batch_size, num_workers=0, pin_memory=False, debug=False, **kwargs
@@ -80,6 +135,43 @@ def get_train_val_dataloaders(
         batch_size,
         True,
         collate_fn=lambda x: collate_fn(x, shift=False),
+        num_workers=num_workers,
+        pin_memory=pin_memory
+    )
+    print(
+        f"Dataloader ready: batch_size={batch_size}, num_workers={num_workers}, pin_memory={pin_memory}, {kwargs}"
+    )
+    return train_dl, val_dl
+
+
+def get_n_bar_vae_train_val_dataloaders(
+    batch_size,
+    num_workers=0,
+    pin_memory=False,
+    debug=False,
+    timesteps_per_bar=32,
+    n_bars=1,
+    **kwargs
+):
+    train_dataset, val_dataset = PianoOrchDataset.load_n_bar_vae_train_and_valid_sets(
+        debug,
+        timesteps_per_bar=timesteps_per_bar,
+        n_bars=n_bars,
+        **kwargs,
+    )
+    train_dl = DataLoader(
+        train_dataset,
+        batch_size,
+        True,
+        collate_fn=lambda x: collate_fn_n_bar_vae(x, shift=True),
+        num_workers=num_workers,
+        pin_memory=pin_memory
+    )
+    val_dl = DataLoader(
+        val_dataset,
+        batch_size,
+        True,
+        collate_fn=lambda x: collate_fn_n_bar_vae(x, shift=False),
         num_workers=num_workers,
         pin_memory=pin_memory
     )

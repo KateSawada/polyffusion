@@ -272,6 +272,15 @@ class PianoOrchDataset(Dataset):
                                         )
 
     @classmethod
+    def load_n_bar_vae_train_and_valid_sets(cls, debug=False, **kwargs):
+        split = read_dict(os.path.join(TRAIN_SPLIT_DIR, "pop909.pickle"))
+        print("load train valid set with:", kwargs)
+        return cls.load_with_song_paths(split[0], debug,
+                                        **kwargs), cls.load_with_song_paths(
+                                            split[1], debug, **kwargs
+                                        )
+
+    @classmethod
     def load_valid_set(cls, debug=False, **kwargs):
         split = read_dict(os.path.join(TRAIN_SPLIT_DIR, "pop909.pickle"))
         return cls.load_with_song_paths(split[1], debug, **kwargs)
