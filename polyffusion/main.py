@@ -5,6 +5,7 @@ from params.params_sdf_pnotree import params as params_sdf_pnotree
 from params.params_sdf_txt import params as params_sdf_txt
 from params.parmas_sdf_txtvnl import params as params_sdf_txtvnl
 from params.params_sdf_concat import params as params_sdf_concat
+from params.params_polydis_vae_1bar import params as params_polydis_vae_1bar
 
 from params.params_ddpm import params as params_ddpm
 from params.params_autoencoder import params as params_autoencoder
@@ -14,6 +15,7 @@ from train.train_ldm import LDM_TrainConfig
 from train.train_autoencoder import Autoencoder_TrainConfig
 from train.train_ddpm import DDPM_TrainConfig
 from train.train_chd_8bar import Chord8bar_TrainConfig
+from train.train_diseatangle_vae import DisentangleVAE_TrainConfig
 
 if __name__ == "__main__":
     parser = ArgumentParser(
@@ -66,6 +68,8 @@ if __name__ == "__main__":
         config = Autoencoder_TrainConfig(params_autoencoder, args.output_dir)
     elif args.model == "chd_8bar":
         config = Chord8bar_TrainConfig(params_chd_8bar, args.output_dir)
+    elif args.model == "polydis_vae":
+        config = DisentangleVAE_TrainConfig(params_polydis_vae_1bar, args.output_dir)
     else:
         raise NotImplementedError
     config.train()
