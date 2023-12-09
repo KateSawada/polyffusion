@@ -46,7 +46,7 @@ class Learner:
 
         print(json.dumps(self.params, sort_keys=True, indent=4))
 
-    def _write_summary(self, losses: dict, scheduled_params: Optional[dict], type):
+    def _write_summary(self, losses: dict, scheduled_params: Optional[dict], type_):
         """type: train or val"""
         summary_losses = losses
         summary_losses["grad_norm"] = self.grad_norm
@@ -56,7 +56,8 @@ class Learner:
         writer = self.summary_writer or SummaryWriter(
             self.log_dir, purge_step=self.step
         )
-        writer.add_scalars(type, summary_losses, self.step)
+
+        writer.add_scalars(type_, summary_losses, self.step)
         writer.flush()
         self.summary_writer = writer
 
