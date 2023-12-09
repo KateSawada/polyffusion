@@ -188,7 +188,7 @@ class Learner:
         scheduled_params= {}
         return loss_dict, scheduled_params
 
-    def train_step(self, batch):
+    def val_step(self, batch):
         loss_dict = {}
         scheduled_params= {}
         return loss_dict, scheduled_params
