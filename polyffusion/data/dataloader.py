@@ -10,7 +10,7 @@ from utils import (
     pr_mat_pitch_shift, prmat2c_to_midi_file, chd_to_onehot, chd_pitch_shift,
     chd_to_midi_file, estx_to_midi_file, pianotree_pitch_shift, prmat_to_midi_file
 )
-from polyffusion.converter import target_to_3dtarget
+from converter import target_to_3dtarget
 
 # SEED = 7890
 # torch.manual_seed(SEED)
@@ -149,13 +149,11 @@ def get_n_bar_vae_train_val_dataloaders(
     num_workers=0,
     pin_memory=False,
     debug=False,
-    timesteps_per_bar=32,
     n_bars=1,
     **kwargs
 ):
     train_dataset, val_dataset = PianoOrchDataset.load_n_bar_vae_train_and_valid_sets(
         debug,
-        timesteps_per_bar=timesteps_per_bar,
         n_bars=n_bars,
         **kwargs,
     )
