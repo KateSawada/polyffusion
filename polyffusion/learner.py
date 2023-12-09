@@ -1,5 +1,6 @@
 import numpy as np
 import os
+from collections.abc import Sequence
 import torch
 import json
 import torch.nn as nn
@@ -52,7 +53,10 @@ class Learner:
         summary_losses["grad_norm"] = self.grad_norm
         if scheduled_params is not None:
             for k, v in scheduled_params.items():
-                summary_losses[f"sched_{k}"] = v
+                if isinstance(v, Sequence):
+                    summary_losses[f"sched_{k}"] = v[0]
+                else:
+                    summary_losses[f"sched_{k}"] = v
         writer = self.summary_writer or SummaryWriter(
             self.log_dir, purge_step=self.step
         )
