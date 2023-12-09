@@ -115,7 +115,8 @@ def piano_roll_to_target(pr):
 
 def target_to_3dtarget(pr_mat, max_note_count=11, max_pitch=107, min_pitch=22,
                        pitch_pad_ind=88, dur_pad_ind=2,
-                       pitch_sos_ind=86, pitch_eos_ind=87):
+                       pitch_sos_ind=86, pitch_eos_ind=87,
+                       width=5,):
     """
     :param pr_mat: (32, 128) matrix. pr_mat[t, p] indicates a note of pitch p,
     started at time step t, has a duration of pr_mat[t, p] time steps.
@@ -139,7 +140,7 @@ def target_to_3dtarget(pr_mat, max_note_count=11, max_pitch=107, min_pitch=22,
     cur_idx = np.ones(32, dtype=int)
     for t, p in zip(*np.where(pr_mat != 0)):
         pr_mat3d[t, cur_idx[t], 0] = p - min_pitch
-        binary = np.binary_repr(int(pr_mat[t, p]) - 1, width=5)
+        binary = np.binary_repr(min(int(pr_mat[t, p,]), 2**width) - 1, width=width)
         pr_mat3d[t, cur_idx[t], 1: 6] = \
             np.fromstring(' '.join(list(binary)), dtype=int, sep=' ')
         cur_idx[t] += 1
