@@ -232,6 +232,226 @@ class DataSampleNpz:
         return prmat2c, pnotree, chord, prmat
 
 
+class VariableBarLengthDataSampleNpz:
+    """
+    A pair of song segment stored in .npz format
+    containing piano and orchestration versions
+
+    This class aims to get input samples for a single song
+    `__getitem__` is used for retrieving ready-made input segments to the model
+    it will be called in DataLoader
+    """
+    def __init__(self, song_fn, use_track=[0, 1, 2], n_bars=1) -> None:  # NOTE: use melody now!
+        self.fpath = os.path.join(POP909_DATA_DIR, song_fn)
+        self.song_fn = song_fn
+        """
+        notes (onset_beat, onset_bin, duration, pitch, velocity)
+        start_table : i-th row indicates the starting row of the "notes" array
+            at i-th beat.
+        db_pos: an array of downbeat beat_ids
+
+        x: orchestra
+        y: piano
+
+        dict : each downbeat corresponds to a SEG_LGTH-long segment
+            nmat: note matrix (same format as input npz files)
+            pr_mat: piano roll matrix (the format for texture decoder)
+            pnotree: pnotree format (used for calculating loss & teacher-forcing)
+        """
+
+        # self.notes = None
+        # self.chord = None
+        # self.start_table = None
+        # self.db_pos = None
+
+        # self._nmat_dict = None
+        # self._pnotree_dict = None
+        # self._pr_mat_dict = None
+        # self._feat_dict = None
+
+        # def load(self, use_chord=False):
+        #     """ load data """
+        self.use_track = use_track  # which tracks to use when converting to prmat2c
+        self.n_bars = n_bars
+        self.bar_resolution = 16  # 1 bar contains 16 timesteps
+        self.segment_length = self.n_bars * self.bar_resolution
+
+        data = np.load(self.fpath, allow_pickle=True)
+        self.notes = np.array(
+            data["notes"]
+        )  # NOTE: here we have 3 tracks: melody, bridge and piano
+        self.start_table = data["start_table"]  # NOTE: same here
+
+        self.db_pos = data["db_pos"]
+        # below was modified because data["db_pos_filter"](bool array) has 7 False at its end. This is suitable for 8-bar sample
+        self.db_pos_filter = np.full_like(data["db_pos_filter"], False)
+        self.db_pos_filter[:len(self.db_pos) + 1 - self.n_bars] = True
+
+        self.db_pos = self.db_pos[self.db_pos_filter]
+        if len(self.db_pos) != 0:
+            self.last_db = self.db_pos[-1]
+
+        self.chord = data["chord"].astype(np.int32)
+
+        self._nmat_dict = dict(zip(self.db_pos, [None] * len(self.db_pos)))
+        self._pnotree_dict = dict(zip(self.db_pos, [None] * len(self.db_pos)))
+        self._prmat2c_dict = dict(zip(self.db_pos, [None] * len(self.db_pos)))
+        self._prmat_dict = dict(zip(self.db_pos, [None] * len(self.db_pos)))
+
+    def __len__(self):
+        """Return number of complete 8-beat segments in a song"""
+        return len(self.db_pos)
+
+    def note_mat_seg_at_db(self, db):
+        """
+        Select rows (notes) of the note_mat which lie between beats
+        [db: db + self.bar_resolution * self.n_bars].
+        """
+
+        seg_mats = []
+        for track_idx in self.use_track:
+            notes = self.notes[track_idx]
+            start_table = self.start_table[track_idx]
+
+            s_ind = start_table[db]
+            if db + self.segment_length in start_table:
+                e_ind = start_table[db + self.segment_length]
+                note_seg = np.array(notes[s_ind : e_ind])
+            else:
+                note_seg = np.array(notes[s_ind :])  # NOTE: may be wrong
+            seg_mats.extend(note_seg)
+
+        seg_mats = np.array(seg_mats)
+        if seg_mats.size == 0:
+            seg_mats = np.zeros([0, 5])
+        return seg_mats
+
+    @staticmethod
+    def cat_note_mats(note_mats):
+        return np.concatenate(note_mats, 0)
+
+    @staticmethod
+    def reset_db_to_zeros(note_mat, db):
+        note_mat[:, 0] -= db
+
+    @staticmethod
+    def format_reset_seg_mat(seg_mat):
+        """
+        The input seg_mat is (N, 5)
+            onset, pitch, duration, velocity, program = note
+        The output seg_mat is (N, 3). Columns for onset, pitch, duration.
+        Onset ranges between range(0, 32).
+        """
+
+        output_mat = np.zeros((len(seg_mat), 3), dtype=np.int64)
+        output_mat[:, 0] = seg_mat[:, 0]
+        output_mat[:, 1] = seg_mat[:, 1]
+        output_mat[:, 2] = seg_mat[:, 2]
+        return output_mat
+
+    def store_nmat_seg(self, db):
+        """
+        Get note matrix (SEG_LGTH) of orchestra(x) at db position
+        """
+        if self._nmat_dict[db] is not None:
+            return
+
+        nmat = self.note_mat_seg_at_db(db)
+        self.reset_db_to_zeros(nmat, db)
+
+        nmat = self.format_reset_seg_mat(nmat)
+        self._nmat_dict[db] = nmat
+
+    def store_prmat2c_seg(self, db):
+        """
+        Get piano roll format (SEG_LGTH) from note matrices at db position
+        """
+        if self._prmat2c_dict[db] is not None:
+            return
+
+        prmat2c = nmat_to_prmat2c(self._nmat_dict[db], self.segment_length)
+        self._prmat2c_dict[db] = prmat2c
+
+    def store_prmat_seg(self, db):
+        """
+        Get piano roll format (SEG_LGTH) from note matrices at db position
+        """
+        if self._prmat_dict[db] is not None:
+            return
+
+        prmat2c = nmat_to_prmat(self._nmat_dict[db], self.segment_length)
+        self._prmat_dict[db] = prmat2c
+
+    def store_pnotree_seg(self, db):
+        """
+        Get pnotree representation (SEG_LGTH) from nmat
+        """
+        if self._pnotree_dict[db] is not None:
+            return
+
+        self._pnotree_dict[db] = nmat_to_pianotree_repr(
+            self._nmat_dict[db], n_step=self.segment_length
+        )
+
+    def _store_seg(self, db):
+        self.store_nmat_seg(db)
+        self.store_prmat2c_seg(db)
+        self.store_prmat_seg(db)
+        self.store_pnotree_seg(db)
+
+    def _get_item_by_db(self, db):
+        """
+        Return segments of
+            prmat, prmat_y
+        """
+
+        self._store_seg(db)
+
+        seg_prmat2c = self._prmat2c_dict[db]
+        seg_prmat = self._prmat_dict[db]
+        seg_pnotree = self._pnotree_dict[db]
+        chord = self.chord[db // N_BIN : db // N_BIN + self.bar_resolution * self.n_bars // N_BIN]
+        if chord.shape[0] < self.bar_resolution * self.n_bars // N_BIN:
+            chord = np.append(
+                chord,
+                np.zeros([self.n_bars * self.bar_resolution // N_BIN - chord.shape[0], 14], dtype=np.int32),
+                axis=0
+            )
+
+        return seg_prmat2c, seg_pnotree, chord, seg_prmat
+
+    def __getitem__(self, idx):
+        db = self.db_pos[idx]
+        return self._get_item_by_db(db)
+
+    def get_whole_song_data(self):
+        """
+        used when inference
+        """
+        prmat2c = []
+        pnotree = []
+        chord = []
+        prmat = []
+        idx = 0
+        i = 0
+        while i < len(self):
+            seg_prmat2c, seg_pnotree, seg_chord, seg_prmat = self[i]
+            prmat2c.append(seg_prmat2c)
+            pnotree.append(seg_pnotree)
+            chord.append(chd_to_onehot(seg_chord))
+            prmat.append(seg_prmat)
+
+            idx += self.segment_length
+            while i < len(self) and self.db_pos[i] < idx:
+                i += 1
+        prmat2c = torch.from_numpy(np.array(prmat2c, dtype=np.float32))
+        pnotree = torch.from_numpy(np.array(pnotree, dtype=np.int64))
+        chord = torch.from_numpy(np.array(chord, dtype=np.float32))
+        prmat = torch.from_numpy(np.array(prmat, dtype=np.float32))
+
+        return prmat2c, pnotree, chord, prmat
+
+
 class PianoOrchDataset(Dataset):
     def __init__(self, data_samples, debug=False):
         super(PianoOrchDataset, self).__init__()
@@ -263,6 +483,11 @@ class PianoOrchDataset(Dataset):
         return cls(data_samples, debug)
 
     @classmethod
+    def load_with_song_paths_n_bars(cls, song_paths, debug=False, **kwargs):
+        data_samples = [VariableBarLengthDataSampleNpz(song_path, **kwargs) for song_path in song_paths]
+        return cls(data_samples, debug)
+
+    @classmethod
     def load_train_and_valid_sets(cls, debug=False, **kwargs):
         split = read_dict(os.path.join(TRAIN_SPLIT_DIR, "pop909.pickle"))
         print("load train valid set with:", kwargs)
@@ -275,8 +500,8 @@ class PianoOrchDataset(Dataset):
     def load_n_bar_vae_train_and_valid_sets(cls, debug=False, **kwargs):
         split = read_dict(os.path.join(TRAIN_SPLIT_DIR, "pop909.pickle"))
         print("load train valid set with:", kwargs)
-        return cls.load_with_song_paths(split[0], debug,
-                                        **kwargs), cls.load_with_song_paths(
+        return cls.load_with_song_paths_n_bars(split[0], debug,
+                                        **kwargs), cls.load_with_song_paths_n_bars(
                                             split[1], debug, **kwargs
                                         )
 
