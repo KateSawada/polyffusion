@@ -1,4 +1,5 @@
 # Copied from torch_plus
+from typing import Tuple, List
 
 import numpy as np
 
@@ -59,6 +60,35 @@ class TeacherForcingScheduler(_Scheduler):
         tfr = self.get_tfr()
         self._update_step()
         return tfr
+
+
+class MultiTeacherForcingScheduler(_Scheduler):
+    def __init__(
+            self,
+            tf_rates: List[Tuple[float, float]],
+            f=scheduled_sampling,
+            step: int=0
+    ):
+        """TeacherForcingSchedulerを複数まとめたもの
+
+        Args:
+            tf_rates (List[Tuple[float, float]]): tf_rate. Each element in list
+                holds (high, low)
+            f (callable, optional): scheduled_sampling function
+            step (int, optional): Initial step. Defaults to 0.
+        """
+        super(MultiTeacherForcingScheduler, self).__init__(step)
+        self.schedulers = []
+        self.tf_rates = tf_rates
+        for i in range(len(tf_rates)):
+            self.schedulers.append(
+                TeacherForcingScheduler(*tf_rates[i], f, step))
+
+    def step(self):
+        tfrs = []
+        for i in range(len(self.tf_rates)):
+            tfrs.append(self.schedulers[i].step())
+        return tfrs
 
 
 class OptimizerScheduler(_Scheduler):
