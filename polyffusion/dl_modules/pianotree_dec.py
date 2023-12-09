@@ -105,7 +105,7 @@ class PianoTreeDecoder(nn.Module):
         self.dur_out_linear = nn.Linear(dec_dur_hid_size, 2)
 
     def get_len_index_tensor(self, ind_x):
-        """Calculate the lengths ((B, 32), torch.LongTensor) of pgrid."""
+        """Calculate the lengths ((B, self.num_step), torch.LongTensor) of pgrid."""
         with torch.no_grad():
             lengths = self.max_simu_note - (ind_x[:, :, :, 0] - self.pitch_pad
                                             == 0).sum(dim=-1)
@@ -113,7 +113,7 @@ class PianoTreeDecoder(nn.Module):
 
     def index_tensor_to_multihot_tensor(self, ind_x):
         """Transfer piano_grid to multi-hot piano_grid."""
-        # ind_x: (B, 32, max_simu_note, 1 + dur_width)
+        # ind_x: (B, self.num_step, max_simu_note, 1 + dur_width)
         with torch.no_grad():
             dur_part = ind_x[:, :, :, 1 :].float()
             out = torch.zeros(
@@ -125,7 +125,7 @@ class PianoTreeDecoder(nn.Module):
             ).to(self.device)
 
             out[range(0, out.size(0)), ind_x[:, :, :, 0].view(-1)] = 1.0
-            out = out.view(-1, 32, self.max_simu_note, self.pitch_range + 1)
+            out = out.view(-1, self.num_step, self.max_simu_note, self.pitch_range + 1)
             out = torch.cat([out[:, :, :, 0 : self.pitch_range], dur_part], dim=-1)
         return out
 
@@ -371,9 +371,9 @@ class PianoTreeDecoder(nn.Module):
         return embedded, lengths
 
     def output_to_numpy(self, recon_pitch, recon_dur):
-        est_pitch = recon_pitch.max(-1)[1].unsqueeze(-1)  # (B, 32, 11, 1)
-        est_dur = recon_dur.max(-1)[1]  # (B, 32, 11, 5)
-        est_x = torch.cat([est_pitch, est_dur], dim=-1)  # (B, 32, 11, 6)
+        est_pitch = recon_pitch.max(-1)[1].unsqueeze(-1)  # (B, self.num_step, 11, 1)
+        est_dur = recon_dur.max(-1)[1]  # (B, self.num_step, 11, 5)
+        est_x = torch.cat([est_pitch, est_dur], dim=-1)  # (B,self.num_step2, 11, 6)
         est_x = est_x.cpu().numpy()
         recon_pitch = recon_pitch.cpu().numpy()
         recon_dur = recon_dur.cpu().numpy()
@@ -383,7 +383,7 @@ class PianoTreeDecoder(nn.Module):
         pr_matrix = self.pr_to_pr_matrix(pr, one_hot)
         alpha = 0.25 * 60 / bpm
         notes = []
-        for t in range(32):
+        for t in range(self.num_step):
             for p in range(128):
                 if pr_matrix[t, p] >= 1:
                     s = alpha * t + start
@@ -394,17 +394,17 @@ class PianoTreeDecoder(nn.Module):
     def grid_to_pr_and_notes(self, grid, bpm=60.0, start=0.0):
         if grid.shape[1] == self.max_simu_note:
             grid = grid[:, 1 :]
-        pr = np.zeros((32, 128), dtype=int)
+        pr = np.zeros((self.num_step, 128), dtype=int)
         alpha = 0.25 * 60 / bpm
         notes = []
-        for t in range(32):
+        for t in range(self.num_step):
             for n in range(10):
                 note = grid[t, n]
                 if note[0] == self.pitch_eos:
                     break
                 pitch = note[0] + self.min_pitch
                 dur = int("".join([str(_) for _ in note[1 :]]), 2) + 1
-                pr[t, pitch] = min(dur, 32 - t)
+                pr[t, pitch] = min(dur, self.num_step - t)
                 notes.append(
                     pretty_midi.Note(
                         80, int(pitch), start + t * alpha, start + (t + dur) * alpha
