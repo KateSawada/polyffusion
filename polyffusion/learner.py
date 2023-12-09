@@ -242,3 +242,47 @@ class PolyffusionLearner(Learner):
                     loss_dict = self.model.get_loss_dict(batch, self.step)
 
         return loss_dict, scheduled_params
+
+
+class DisentangleVAELearner(Learner):
+    def __init__(self, output_dir, model, train_dl, val_dl, optimizer, params, param_scheduler):
+        super().__init__(output_dir, model, train_dl, val_dl, optimizer, params, param_scheduler)
+
+    def train_step(self, batch):
+        for param in self.model.parameters():
+            param.grad = None
+
+        # here forward the model
+        with self.autocast:
+            if self.param_scheduler is not None:
+                scheduled_params = self.param_scheduler.step()
+                loss_dict = self.model.get_loss_dict(
+                    batch, self.step, **scheduled_params
+                )
+            else:
+                scheduled_params = None
+                loss_dict = self.model.get_loss_dict(batch, self.step)
+
+        loss = loss_dict["loss"]
+        self.scaler.scale(loss).backward()
+        self.scaler.unscale_(self.optimizer)
+        self.grad_norm = nn.utils.clip_grad.clip_grad_norm_(
+            self.model.parameters(), self.params.max_grad_norm or 1e9
+        )
+        self.scaler.step(self.optimizer)
+        self.scaler.update()
+        return loss_dict, scheduled_params
+
+    def val_step(self, batch):
+        with torch.no_grad():
+            with self.autocast:
+                if self.param_scheduler is not None:
+                    scheduled_params = self.param_scheduler.step()
+                    loss_dict = self.model.get_loss_dict(
+                        batch, self.step, **scheduled_params
+                    )
+                else:
+                    scheduled_params = None
+                    loss_dict = self.model.get_loss_dict(batch, self.step)
+
+        return loss_dict, scheduled_params
