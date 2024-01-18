@@ -485,6 +485,7 @@ if __name__ == "__main__":
     os.makedirs(output_dir)
     os.makedirs(log_dir)
     os.makedirs(checkpoint_dir)
+    print(f"result will be stored in {output_dir}")
     # パラメータの設定
     batch_size = args.batch_size
     max_epoch = args.max_epoch
