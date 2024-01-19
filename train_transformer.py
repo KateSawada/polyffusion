@@ -436,6 +436,7 @@ import os
 import argparse
 from datetime import datetime
 from tqdm import tqdm
+import json
 from torch.utils.tensorboard.writer import SummaryWriter
 
 
@@ -498,6 +499,8 @@ if __name__ == "__main__":
     weight_stop_estimation = args.weight_stop_estimation
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
+    with open(f"{output_dir}/params.json", "w") as params_file:
+        json.dump(vars(args), params_file)
 
     # pretrained encoderの読み込み
     params = params_chd8bar
