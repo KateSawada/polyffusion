@@ -210,7 +210,7 @@ class GenerativeTransformerModel(nn.Module):
         batch_size = x.size(0)
         max_len = x.size(1)
         return (
-            torch.tril(torch.ones(batch_size, max_len, max_len)).eq(0).to(self.device)
+            torch.tril(torch.ones(batch_size * self.heads_num, max_len, max_len)).eq(0).to(self.device)
         )
 
 
