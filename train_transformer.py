@@ -379,8 +379,10 @@ class Collator:
             chords = torch.Tensor(np.array(chords)).float()
             prmats = torch.Tensor(np.array(prmats)).float()
 
-            cond_chords.append(self._encode_chord(chords))
-            cond_txts.append(self._encode_txt(prmats))
+            if self.chord_enc is not None:
+                cond_chords.append(self._encode_chord(chords))
+            if self.txt_enc is not None:
+                cond_txts.append(self._encode_txt(prmats))
 
 
             prmat2c.append(prmat2cs)
@@ -391,10 +393,14 @@ class Collator:
             if len(b) > 4:
                 song_fn.append(b[4])
 
-
         # pad to max_sequence_length
-        cond_chords = torch.nn.utils.rnn.pad_sequence(cond_chords, batch_first=True)
-        cond_txts = torch.nn.utils.rnn.pad_sequence(cond_txts, batch_first=True)
+        if self.chord_enc is not None:
+            cond_chords = torch.nn.utils.rnn.pad_sequence(cond_chords, batch_first=True)
+        if self.txt_enc is not None:
+            cond_txts = torch.nn.utils.rnn.pad_sequence(cond_txts, batch_first=True)
+
+        cond_chords = torch.Tensor(cond_chords)
+        cond_txts = torch.Tensor(cond_txts)
 
         cond = torch.cat([cond_chords, cond_txts], dim=-1).squeeze(2)
 
@@ -457,6 +463,8 @@ def get_args():
     parser.add_argument("--heads_num", type=int, default=1)
     parser.add_argument("--n_layers", type=int, default=6)
     parser.add_argument("--weight_stop_estimation", type=float, default=5.0)
+    parser.add_argument("--use_chd_enc", action="store_true")
+    parser.add_argument("--use_txt_enc", action="store_true")
     args = parser.parse_args()
     return args
 
@@ -497,32 +505,41 @@ if __name__ == "__main__":
     heads_num = args.heads_num
     n_layers = args.n_layers
     weight_stop_estimation = args.weight_stop_estimation
+    use_chd_enc = args.use_chd_enc
+    use_txt_enc = args.use_txt_enc
+
+    if not (use_chd_enc or use_txt_enc):
+        raise ValueError("use_chd_enc or use_txt_enc must be True")
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     with open(f"{output_dir}/params.json", "w") as params_file:
         json.dump(vars(args), params_file)
 
-    # pretrained encoderの読み込み
-    params = params_chd8bar
-    chord_enc, chord_dec = load_pretrained_chd_enc_dec(
-        PT_CHD_8BAR_PATH, params.chd_input_dim, params.chd_z_input_dim,
-        params.chd_hidden_dim, params.chd_z_dim, params.chd_n_step
-    )
+    d_model = 0
 
-    chd_z_dim = params.chd_z_dim
+    if use_chd_enc:
+        # pretrained encoderの読み込み
+        params = params_chd8bar
+        chord_enc, chord_dec = load_pretrained_chd_enc_dec(
+            PT_CHD_8BAR_PATH, params.chd_input_dim, params.chd_z_input_dim,
+            params.chd_hidden_dim, params.chd_z_dim, params.chd_n_step
+        )
+        d_model += params.chd_z_dim
+    else:
+        chord_enc = None
 
-    params = params_txt
-    txt_enc = load_pretrained_txt_enc(
-        PT_POLYDIS_PATH, params.txt_emb_size, params.txt_hidden_dim,
-        params.txt_z_dim, params.txt_num_channel
-    )
-
-    txt_z_dim = params.txt_z_dim
+    if use_txt_enc:
+        params = params_txt
+        txt_enc = load_pretrained_txt_enc(
+            PT_POLYDIS_PATH, params.txt_emb_size, params.txt_hidden_dim,
+            params.txt_z_dim, params.txt_num_channel
+        )
+        d_model += params.txt_z_dim * 4
+    else:
+        txt_enc = None
 
     collate_fn = Collator(chord_enc, txt_enc)
     train_dl, val_dl = get_train_val_dataloaders(batch_size)
-
-    d_model = chd_z_dim + txt_z_dim * 4
 
     # モデルにデータを流してみる
     model = GenerativeTransformerModel(
