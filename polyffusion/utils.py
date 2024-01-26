@@ -192,6 +192,14 @@ def chd_pitch_shift(chd, shift):
 
 
 def chd_to_onehot(chd):
+    """chord vector(length: 14) to one-hot
+
+    Args:
+        chd (np.ndarray, shape=(steps, 14)): chord matrix
+
+    Returns:
+        np.ndarray: shape=(steps, 36)
+    """
     n_step = chd.shape[0]
     onehot_chd = np.zeros((n_step, 36), dtype=np.float32)
     onehot_chd[np.arange(n_step), chd[:, 0]] = 1
