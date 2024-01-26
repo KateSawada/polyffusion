@@ -1,11 +1,10 @@
+import random
+
 import torch
 import torch.nn as nn
-import sys
-
-from utils import *
-from stable_diffusion.latent_diffusion import LatentDiffusion
 import torch.nn.functional as F
-import random
+from stable_diffusion.latent_diffusion import LatentDiffusion
+from utils import *
 
 
 class Polyffusion_SDF(nn.Module):
@@ -20,7 +19,7 @@ class Polyffusion_SDF(nn.Module):
         pnotree_dec=None,
         txt_enc=None,
         concat_blurry=False,
-        concat_ratio=1 / 8
+        concat_ratio=1 / 8,
     ):
         """
         cond_type: {chord, texture}
@@ -29,7 +28,6 @@ class Polyffusion_SDF(nn.Module):
         use_enc: whether to use pretrained chord encoder to generate encoded condition
         """
         super(Polyffusion_SDF, self).__init__()
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
         self.ldm = ldm
         self.cond_type = cond_type
         self.cond_mode = cond_mode
@@ -69,11 +67,17 @@ class Polyffusion_SDF(nn.Module):
         chord_dec=None,
         pnotree_enc=None,
         pnotree_dec=None,
-        txt_enc=None
+        txt_enc=None,
     ):
         model = cls(
-            ldm, cond_type, cond_mode, chord_enc, chord_dec, pnotree_enc, pnotree_dec,
-            txt_enc
+            ldm,
+            cond_type,
+            cond_mode,
+            chord_enc,
+            chord_dec,
+            pnotree_enc,
+            pnotree_dec,
+            txt_enc,
         )
         trained_leaner = torch.load(chkpt_fpath)
         model.load_state_dict(trained_leaner["model"])
@@ -120,7 +124,7 @@ class Polyffusion_SDF(nn.Module):
             # chord = torch.cat(chord_list, dim=1)
             # print(f"chord {chord.shape}")
             recon_root, recon_chroma, recon_bass = self.chord_dec(
-                z, inference=True, tfr=0.
+                z, inference=True, tfr=0.0
             )
             recon_root = F.one_hot(recon_root.max(-1)[-1], num_classes=12)
             recon_chroma = recon_chroma.max(-1)[-1]
@@ -167,7 +171,7 @@ class Polyffusion_SDF(nn.Module):
         for z_seg in z.split(z_dim, -1):
             z_seg = z_seg.squeeze()
             # print(f"z_seg {z_seg.shape}")
-            recon_pitch, recon_dur = self.pnotree_dec(z_seg, True, None, None, 0., 0.)
+            recon_pitch, recon_dur = self.pnotree_dec(z_seg, True, None, None, 0.0, 0.0)
 
             est_pitch = recon_pitch.max(-1)[1].unsqueeze(-1)  # (B, 32, 20, 1)
             est_dur = recon_dur.max(-1)[1]  # (B, 32, 11, 5)
@@ -194,6 +198,15 @@ class Polyffusion_SDF(nn.Module):
             # exit(0)
         elif self.cond_type == "txt":
             cond = self._encode_txt(prmat)
+        elif self.cond_type == "chord+txt":
+            zchd = self._encode_chord(chord)
+            ztxt = self._encode_txt(prmat)
+            if self.cond_mode == "mix2":
+                if random.random() < 0.2:
+                    zchd = (-torch.ones_like(zchd)).to(prmat.device)  # a bunch of -1
+                if random.random() < 0.2:
+                    ztxt = (-torch.ones_like(ztxt)).to(prmat.device)  # a bunch of -1
+            cond = torch.cat([zchd, ztxt], dim=-1)
         else:
             raise NotImplementedError
         # recon_chord = self._decode_chord(cond)
@@ -201,10 +214,10 @@ class Polyffusion_SDF(nn.Module):
         # exit(0)
 
         if self.cond_mode == "uncond":
-            cond = (-torch.ones_like(cond)).to(self.device)  # a bunch of -1
-        elif self.cond_mode == "mix":
+            cond = (-torch.ones_like(cond)).to(prmat.device)  # a bunch of -1
+        elif self.cond_mode == "mix" or self.cond_mode == "mix2":
             if random.random() < 0.2:
-                cond = (-torch.ones_like(cond)).to(self.device)  # a bunch of -1
+                cond = (-torch.ones_like(cond)).to(prmat.device)  # a bunch of -1
 
         # if self.is_autoregressive:
         #     concat, x = prmat2c.split(64, -2)
