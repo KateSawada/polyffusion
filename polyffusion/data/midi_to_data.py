@@ -104,7 +104,6 @@ def get_chord_matrix(fpath):
             beat_cnt += 1
             # see https://craffel.github.io/mir_eval/#mir_eval.chord.encode
             chd_enc = mir_eval.chord.encode(chord)
-
             root = chd_enc[0]
             # make chroma and bass absolute
             chroma_bitmap = chd_enc[1]

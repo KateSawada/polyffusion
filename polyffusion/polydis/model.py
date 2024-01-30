@@ -10,14 +10,14 @@ def get_zs_from_dists(dists, sample=False):
     return [dist.rsample() if sample else dist.mean for dist in dists]
 
 
-def standard_normal(shape):
-    N = Normal(torch.zeros(shape), torch.ones(shape))
+def standard_normal(shape, device="cpu"):
+    N = Normal(torch.zeros(shape).to(device), torch.ones(shape).to(device))
     return N
 
 
-def kl_with_normal(dist):
+def kl_with_normal(dist, device="cpu"):
     shape = dist.mean.size(-1)
-    normal = standard_normal(shape)
+    normal = standard_normal(shape, device=device)
     kl = kl_divergence(dist, normal).mean()
     return kl
 
@@ -130,8 +130,8 @@ class DisentangleVAE(nn.Module):
 
     def kl_loss(self, *dists):
         # kl = kl_with_normal(dists[0])
-        kl_chd = kl_with_normal(dists[0]).to(dists[0].device)
-        kl_rhy = kl_with_normal(dists[1]).to(dists[0].device)
+        kl_chd = kl_with_normal(dists[0], dists[0].loc.device).to(dists[0].loc.device)
+        kl_rhy = kl_with_normal(dists[1], dists[0].loc.device).to(dists[0].loc.device)
         kl_loss = kl_chd + kl_rhy
         return kl_loss, kl_chd, kl_rhy
 
