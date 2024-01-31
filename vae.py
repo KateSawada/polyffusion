@@ -727,7 +727,7 @@ if __name__ == "__main__":
             input_params = param_scheduler.step()
 
             with torch.no_grad():
-                outputs = model.loss(pnotree.to(device), chord.to(device), prmat.to(device), **input_params)
+                outputs = model.loss(pnotree.to(device), chord.to(device), prmat.to(device), None, **input_params)
 
             outputs = dict(zip(writer_names, outputs))
             if losses is None:
