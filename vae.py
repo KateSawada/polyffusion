@@ -698,6 +698,7 @@ if __name__ == "__main__":
                 model.parameters(),
                 opt_scheduler.clip)
             opt_scheduler.step()
+            outputs = dict(zip(writer_names, outputs))
 
             if losses is None:
                 losses = outputs
@@ -728,6 +729,7 @@ if __name__ == "__main__":
             with torch.no_grad():
                 outputs = model.loss(pnotree.to(device), chord.to(device), prmat.to(device), **input_params)
 
+            outputs = dict(zip(writer_names, outputs))
             if losses is None:
                 losses = outputs
             else:
