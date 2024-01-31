@@ -24,6 +24,7 @@ class RnnEncoder(nn.Module):
         x = x.view(x.size(0), -1)
         mu = self.linear_mu(x)
         var = self.linear_var(x).exp_()
+        var += torch.ones_like(var) * 1e-45  # avoid 0 in var
         dist = Normal(mu, var)
         return dist
 
@@ -114,6 +115,7 @@ class TextureEncoder(nn.Module):
         pr = pr.view(pr.size(0), -1)
         mu = self.linear_mu(pr)
         var = self.linear_var(pr).exp_()
+        var += torch.ones_like(var) * 1e-45  # avoid 0 in var
         dist = Normal(mu, var)
         return dist
 
@@ -222,6 +224,7 @@ class PtvaeEncoder(nn.Module):
         x = x.view(x.size(0), -1)
         mu = self.linear_mu(x)  # (B, z_size)
         std = self.linear_std(x).exp_()  # (B, z_size)
+        std += torch.ones_like(std) * 1e-45  # avoid 0 in var
         dist = Normal(mu, std)
         return dist, embedded
 
