@@ -698,7 +698,7 @@ if __name__ == "__main__":
                 model.parameters(),
                 opt_scheduler.clip)
             opt_scheduler.step()
-            outputs = dict(zip(writer_names, outputs))
+            outputs = dict(zip(writer_names, map(lambda x: x.detach().cpu().numpy().copy(), outputs)))
 
             if losses is None:
                 losses = outputs
