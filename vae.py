@@ -706,6 +706,8 @@ if __name__ == "__main__":
                 for k, v in outputs.items():
                     losses[k] += v
 
+            if step % 100 == 0:
+                writer.add_scalars("train_step", outputs, step)
             step += 1
 
         for k, v in losses.items():
