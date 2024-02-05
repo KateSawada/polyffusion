@@ -762,7 +762,3 @@ if __name__ == "__main__":
             writer.flush()
 
             model.train()
-    # TODO: debug=True削除
-    # train_ds, valid_ds = WholeSongDataSample.load_train_and_valid_sets(n_bars=n_bars, debug=True)
-    # print(train_ds[3][0][0].shape)  # (2, 16, 128)  # prmat2c for n_bars=1
-
