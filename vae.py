@@ -387,6 +387,15 @@ class NBarsDataSample(Dataset):
             split[0], debug=debug, **kwargs
         ), cls.load_with_song_paths(split[1], debug=debug, **kwargs)
 
+    @classmethod
+    def load_valid_sets(cls, debug=False, **kwargs,):
+        if debug:
+            split = read_dict(os.path.join(TRAIN_SPLIT_DIR, "pop909_debug32.pickle"))
+        else:
+            split = read_dict(os.path.join(TRAIN_SPLIT_DIR, "pop909.pickle"))
+        print("load valid set with:", kwargs)
+        return cls.load_with_song_paths(split[1], debug=debug, **kwargs)
+
 # NOTE: このvaeでは使わないのに，勢い余って実装してしまった．
 class WholeSongDataSample(Dataset):
     def __init__(self, data_samples: list[DataSample]) -> None:
