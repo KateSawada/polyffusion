@@ -555,6 +555,7 @@ def _accumulate_loss_dic(writer_names, loss_dic, loss_items):
 
 def get_args():
     parser = argparse.ArgumentParser()
+    parser.add_argument("--task", type=str, default="train", help="train or test")
     parser.add_argument("--debug", default=False, action="store_true")
     parser.add_argument("--output_dir", type=str, default="result/polydis_vae")
     parser.add_argument("--batch_size", type=int, default=16)
@@ -649,117 +650,118 @@ if __name__ == "__main__":
     with open(f"{output_dir}/params.yaml", "w") as f:
         yaml.dump(vars(args), f)
 
-    train_dl, val_dl = get_train_val_dataloaders(**vars(args))
+    if args.task == "train":
+        train_dl, val_dl = get_train_val_dataloaders(**vars(args))
 
-    model = init_model(device, chd_size, txt_size, num_channel, n_bars)
+        model = init_model(device, chd_size, txt_size, num_channel, n_bars)
 
-    optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
-    scheduler = MinExponentialLR(optimizer, gamma=0.9999, minimum=1e-5)
-    opt_scheduler = OptimizerScheduler(optimizer, scheduler, clip)
+        optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
+        scheduler = MinExponentialLR(optimizer, gamma=0.9999, minimum=1e-5)
+        opt_scheduler = OptimizerScheduler(optimizer, scheduler, clip)
 
-    tfr1_scheduler = TeacherForcingScheduler(*tf_rates[0])
-    tfr2_scheduler = TeacherForcingScheduler(*tf_rates[1])
-    tfr3_scheduler = TeacherForcingScheduler(*tf_rates[2])
-    weights = [1, 0.5]
-    weights_scheduler = ConstantScheduler(weights)
-    beta = [0.1, 0.0001]  # TODO: これの良い値を考える
-    beta_scheduler = TeacherForcingScheduler(*beta, f=kl_anealing)
-    params_dic = dict(tfr1=tfr1_scheduler, tfr2=tfr2_scheduler,
-                    tfr3=tfr3_scheduler,
-                    beta=beta_scheduler, weights=weights_scheduler)
-    param_scheduler = ParameterScheduler(**params_dic)
+        tfr1_scheduler = TeacherForcingScheduler(*tf_rates[0])
+        tfr2_scheduler = TeacherForcingScheduler(*tf_rates[1])
+        tfr3_scheduler = TeacherForcingScheduler(*tf_rates[2])
+        weights = [1, 0.5]
+        weights_scheduler = ConstantScheduler(weights)
+        beta = [0.1, 0.0001]  # TODO: これの良い値を考える
+        beta_scheduler = TeacherForcingScheduler(*beta, f=kl_anealing)
+        params_dic = dict(tfr1=tfr1_scheduler, tfr2=tfr2_scheduler,
+                        tfr3=tfr3_scheduler,
+                        beta=beta_scheduler, weights=weights_scheduler)
+        param_scheduler = ParameterScheduler(**params_dic)
 
-    writer_names = ['loss', 'recon_loss', 'pl', 'dl', 'kl_loss', 'kl_chd',
-                'kl_rhy', 'chord_loss', 'root_loss', 'chroma_loss', 'bass_loss']
-    writer = SummaryWriter(
-            log_dir
-    )
+        writer_names = ['loss', 'recon_loss', 'pl', 'dl', 'kl_loss', 'kl_chd',
+                    'kl_rhy', 'chord_loss', 'root_loss', 'chroma_loss', 'bass_loss']
+        writer = SummaryWriter(
+                log_dir
+        )
 
-    epoch = 0
-    step = 0
-    best_val_loss = torch.tensor([1e10], device=device)
-
-    model.train()
-    param_scheduler.train()
-
-    while True:
-
-        if epoch >= max_epoch:
-            break
-
-        losses = None
-        # train epoch loop
-        for i, batch in enumerate(tqdm(train_dl, desc=f"Epoch {epoch}")):
-            # warmup from https://github.com/soobinseo/Transformer-TTS.git
-            # if step < 400000:
-            #     adjust_learning_rate(optimizer, step + 1)
-            # train step loop
-            for param in model.parameters():
-                param.grad = None
-
-            prmat2c, pnotree, chord, prmat = batch
-            input_params = param_scheduler.step()
-
-            outputs = model.loss(pnotree.to(device), chord.to(device), prmat.to(device), None, **input_params)  # None is alternative to dt_x
-            loss = outputs[0]
-            loss.backward()
-            torch.nn.utils.clip_grad_norm_(
-                model.parameters(),
-                opt_scheduler.clip)
-            opt_scheduler.step()
-            outputs = dict(zip(writer_names, map(lambda x: x.detach().cpu().numpy().copy(), outputs)))
-
-            if losses is None:
-                losses = outputs
-            else:
-                for k, v in outputs.items():
-                    losses[k] += v
-
-            if step % 100 == 0:
-                writer.add_scalars("train_step", outputs, step)
-            step += 1
-
-        for k, v in losses.items():
-            losses[k] /= len(train_dl)
-
-        writer.add_scalars("train", losses, step)
-        writer.flush()
-        epoch += 1
-
-        # validation
-        model.eval()
-        param_scheduler.eval()
-
-        losses = None
-        # valid epoch loop
-        for i, batch in enumerate(val_dl):
-            # val step loop
-            prmat2c, pnotree, chord, prmat = batch
-            input_params = param_scheduler.step()
-
-            with torch.no_grad():
-                outputs = model.loss(pnotree.to(device), chord.to(device), prmat.to(device), None, **input_params)
-
-            outputs = dict(zip(writer_names, map(lambda x: x.detach().cpu().numpy().copy(), outputs)))
-            if losses is None:
-                losses = outputs
-            else:
-                for k, v in outputs.items():
-                    losses[k] += v
-        for k, v in losses.items():
-            losses[k] /= len(val_dl)
-
-        if best_val_loss >= losses["loss"]:
-            best_val_loss = losses["loss"]
-            save_to_checkpoint(checkpoint_dir, model, step, epoch, optimizer, is_best=True)
-        else:
-            save_to_checkpoint(checkpoint_dir, model, step, epoch, optimizer, is_best=False)
-
-        summary_losses = losses
-        writer.add_scalars("valid", summary_losses, step)
-        writer.flush()
+        epoch = 0
+        step = 0
+        best_val_loss = torch.tensor([1e10], device=device)
 
         model.train()
+        param_scheduler.train()
+
+        while True:
+
+            if epoch >= max_epoch:
+                break
+
+            losses = None
+            # train epoch loop
+            for i, batch in enumerate(tqdm(train_dl, desc=f"Epoch {epoch}")):
+                # warmup from https://github.com/soobinseo/Transformer-TTS.git
+                # if step < 400000:
+                #     adjust_learning_rate(optimizer, step + 1)
+                # train step loop
+                for param in model.parameters():
+                    param.grad = None
+
+                prmat2c, pnotree, chord, prmat = batch
+                input_params = param_scheduler.step()
+
+                outputs = model.loss(pnotree.to(device), chord.to(device), prmat.to(device), None, **input_params)  # None is alternative to dt_x
+                loss = outputs[0]
+                loss.backward()
+                torch.nn.utils.clip_grad_norm_(
+                    model.parameters(),
+                    opt_scheduler.clip)
+                opt_scheduler.step()
+                outputs = dict(zip(writer_names, map(lambda x: x.detach().cpu().numpy().copy(), outputs)))
+
+                if losses is None:
+                    losses = outputs
+                else:
+                    for k, v in outputs.items():
+                        losses[k] += v
+
+                if step % 100 == 0:
+                    writer.add_scalars("train_step", outputs, step)
+                step += 1
+
+            for k, v in losses.items():
+                losses[k] /= len(train_dl)
+
+            writer.add_scalars("train", losses, step)
+            writer.flush()
+            epoch += 1
+
+            # validation
+            model.eval()
+            param_scheduler.eval()
+
+            losses = None
+            # valid epoch loop
+            for i, batch in enumerate(val_dl):
+                # val step loop
+                prmat2c, pnotree, chord, prmat = batch
+                input_params = param_scheduler.step()
+
+                with torch.no_grad():
+                    outputs = model.loss(pnotree.to(device), chord.to(device), prmat.to(device), None, **input_params)
+
+                outputs = dict(zip(writer_names, map(lambda x: x.detach().cpu().numpy().copy(), outputs)))
+                if losses is None:
+                    losses = outputs
+                else:
+                    for k, v in outputs.items():
+                        losses[k] += v
+            for k, v in losses.items():
+                losses[k] /= len(val_dl)
+
+            if best_val_loss >= losses["loss"]:
+                best_val_loss = losses["loss"]
+                save_to_checkpoint(checkpoint_dir, model, step, epoch, optimizer, is_best=True)
+            else:
+                save_to_checkpoint(checkpoint_dir, model, step, epoch, optimizer, is_best=False)
+
+            summary_losses = losses
+            writer.add_scalars("valid", summary_losses, step)
+            writer.flush()
+
+            model.train()
     # TODO: debug=True削除
     # train_ds, valid_ds = WholeSongDataSample.load_train_and_valid_sets(n_bars=n_bars, debug=True)
     # print(train_ds[3][0][0].shape)  # (2, 16, 128)  # prmat2c for n_bars=1
