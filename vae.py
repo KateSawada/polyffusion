@@ -522,6 +522,26 @@ def get_train_val_dataloaders(
     )
     return train_dl, val_dl
 
+def get_val_dataloader(
+    batch_size, num_workers=0, pin_memory=False, debug=False, **kwargs
+):
+    val_dataset = NBarsDataSample.load_valid_sets(
+        debug=debug, **kwargs
+    )
+    val_collator = Collator(is_shift=False)
+    val_dl = DataLoader(
+        val_dataset,
+        batch_size,
+        False,
+        collate_fn=val_collator,
+        num_workers=num_workers,
+        pin_memory=pin_memory,
+    )
+    print(
+        f"Dataloader ready: batch_size={batch_size}, num_workers={num_workers}, pin_memory={pin_memory}, val_segments={len(val_dataset)} {kwargs}"
+    )
+    return val_dl
+
 class Collator(object):
     def __init__(self, is_shift=False):
         self.is_shift = is_shift
