@@ -35,6 +35,7 @@ from polyffusion.utils import (
     chd_pitch_shift,
     pr_mat_pitch_shift,
     chd_to_onehot,
+    estx_to_midi_file,
 )
 from polyffusion.dl_modules import ChordDecoder, ChordEncoder, PianoTreeDecoder, TextureEncoder
 from polyffusion.train.scheduler import OptimizerScheduler
@@ -608,6 +609,14 @@ def get_args():
     parser.add_argument("--txt_size", type=int, default=256)
     parser.add_argument("--num_channel", type=int, default=10)
 
+    parser.add_argument(
+        "--ckpt",
+        type=str,
+        default=None,
+        help="checkpoint file(.pt) path",
+        required=False,
+    )
+
     args = parser.parse_args()
     return args
 
@@ -659,6 +668,8 @@ if __name__ == "__main__":
     chd_size = args.chd_size
     txt_size = args.txt_size
     num_channel = args.num_channel
+
+    ckpt = args.ckpt
 
     clip = 1
     tf_rates = [(0.6, 0), (0.5, 0), (0.5, 0)]
@@ -782,3 +793,33 @@ if __name__ == "__main__":
             writer.flush()
 
             model.train()
+
+    elif args.task == "test":
+        # generate with val_dl
+        if (ckpt is None):
+            raise ValueError("checkpoint file is not specified.")
+        val_dl = get_val_dataloader(**vars(args))
+
+        model = init_model(device, chd_size, txt_size, num_channel, n_bars)
+        state_dict = torch.load(ckpt)
+        model.load_state_dict(state_dict["model"])
+        model.eval()
+
+        for i, batch in enumerate(tqdm(val_dl)):
+            # val step loop
+            prmat2c, pnotree, chord, prmat = batch
+
+            with torch.no_grad():
+                outputs = model.run(pnotree.to(device), chord.to(device), prmat.to(device), 0.0, 0.0, 0.0)
+            (
+                pitch_outs,
+                dur_outs,
+                dist_chd,
+                dist_rhy,
+                recon_root,
+                recon_chroma,
+                recon_bass,
+            ) = outputs
+
+            est_x, _, _ = model.decoder.output_to_numpy(pitch_outs, dur_outs)
+            estx_to_midi_file(est_x, os.path.join(output_dir, f"est_{i}.mid"))
