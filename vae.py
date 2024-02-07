@@ -1,3 +1,15 @@
+"""
+usage
+
+# train
+`$ python vae.py --task train`
+
+# test with validation set
+`$ python vae.py --task test --ckpt /path/to/ckpt.pt`
+
+# test with midi files
+`$ python vae.py --task test --mid_dir /path/to/midi_dir --ckpt /path/to/ckpt.pt`
+"""
 from __future__ import annotations
 import os
 import sys
