@@ -9,6 +9,7 @@ import argparse
 from datetime import datetime
 import json
 import tempfile
+from pathlib import Path
 
 import torch
 from torch.utils.data import Dataset, DataLoader
@@ -335,6 +336,18 @@ def init_model(
         )
         return model.to(device)
 
+def add_filename_suffix(filename: str, suffix: str) -> str:
+    """add suffix before extension
+
+    Args:
+        filename (str): filename
+        suffix (str): suffix
+
+    Returns:
+        str: new filename. e.g. filename="hoge.txt", suffix="fuga" -> "hoge_fuga.txt"
+    """
+    return filename[:filename.rfind(".")] + suffix + filename[filename.rfind("."):]
+
 class NBarsDataSample(Dataset):
     def __init__(self, data_samples: list[DataSample]) -> None:
         super().__init__()
@@ -363,8 +376,7 @@ class NBarsDataSample(Dataset):
             for song_path in tqdm(song_paths, desc="DataSample loading"):
                 mid_song_path = os.path.join(
                     data_dir,
-                    os.path.dirname(song_path),
-                    os.path.splitext(os.path.basename(song_path))[0] + "_flatten.mid"
+                    song_path,
                 )
                 data_samples += [
                     DataSample(
@@ -383,6 +395,8 @@ class NBarsDataSample(Dataset):
             split = read_dict(os.path.join(TRAIN_SPLIT_DIR, "pop909_debug32.pickle"))
         else:
             split = read_dict(os.path.join(TRAIN_SPLIT_DIR, "pop909.pickle"))
+        split[0] = list(map(lambda x: add_filename_suffix(x, "_flatten"), split[0]))
+        split[1] = list(map(lambda x: add_filename_suffix(x, "_flatten"), split[1]))
         print("load train valid set with:", kwargs)
         return cls.load_with_song_paths(
             split[0], debug=debug, **kwargs
@@ -394,6 +408,7 @@ class NBarsDataSample(Dataset):
             split = read_dict(os.path.join(TRAIN_SPLIT_DIR, "pop909_debug32.pickle"))
         else:
             split = read_dict(os.path.join(TRAIN_SPLIT_DIR, "pop909.pickle"))
+        split[1] = list(map(lambda x: add_filename_suffix(x, "_flatten"), split[1]))
         print("load valid set with:", kwargs)
         return cls.load_with_song_paths(split[1], debug=debug, **kwargs)
 
