@@ -412,6 +412,13 @@ class NBarsDataSample(Dataset):
         print("load valid set with:", kwargs)
         return cls.load_with_song_paths(split[1], debug=debug, **kwargs)
 
+    @classmethod
+    def load_set_with_mid_dir_path(cls, mid_dir_path, **kwargs):
+        directory = Path(mid_dir_path)
+        midi_file_names = [f.name for f in directory.iterdir() if f.is_file() and f.suffix == ".mid"]
+        print(f"loaded midi files:", midi_file_names)
+        return cls.load_with_song_paths(midi_file_names, mid_dir_path, **kwargs)
+
 # NOTE: このvaeでは使わないのに，勢い余って実装してしまった．
 class WholeSongDataSample(Dataset):
     def __init__(self, data_samples: list[DataSample]) -> None:
@@ -558,6 +565,26 @@ def get_val_dataloader(
     )
     return val_dl
 
+def get_mid_dataloader(
+    batch_size, num_workers=0, pin_memory=False, mid_dir=None, **kwargs
+):
+    mid_dataset = NBarsDataSample.load_set_with_mid_dir_path(
+        mid_dir, **kwargs
+    )
+    mid_collator = Collator(is_shift=False)
+    mid_loader = DataLoader(
+        mid_dataset,
+        batch_size,
+        False,
+        collate_fn=mid_collator,
+        num_workers=num_workers,
+        pin_memory=pin_memory,
+    )
+    print(
+        f"Dataloader ready: batch_size={batch_size}, num_workers={num_workers}, pin_memory={pin_memory}, mid_segments={len(mid_dataset)} {kwargs}"
+    )
+    return mid_loader
+
 class Collator(object):
     def __init__(self, is_shift=False):
         self.is_shift = is_shift
@@ -631,6 +658,13 @@ def get_args():
         help="checkpoint file(.pt) path",
         required=False,
     )
+    parser.add_argument(
+        "--mid_dir",
+        type=str,
+        default=None,
+        help="midi directory",
+        required=False,
+    )
 
     args = parser.parse_args()
     return args
@@ -685,6 +719,7 @@ if __name__ == "__main__":
     num_channel = args.num_channel
 
     ckpt = args.ckpt
+    mid_dir = args.mid_dir
 
     clip = 1
     tf_rates = [(0.6, 0), (0.5, 0), (0.5, 0)]
@@ -810,31 +845,53 @@ if __name__ == "__main__":
             model.train()
 
     elif args.task == "test":
-        # generate with val_dl
+        # reconstruct
         if (ckpt is None):
             raise ValueError("checkpoint file is not specified.")
-        val_dl = get_val_dataloader(**vars(args))
 
         model = init_model(device, chd_size, txt_size, num_channel, n_bars)
         state_dict = torch.load(ckpt)
         model.load_state_dict(state_dict["model"])
         model.eval()
 
-        for i, batch in enumerate(tqdm(val_dl)):
-            # val step loop
-            prmat2c, pnotree, chord, prmat = batch
+        if (mid_dir is None):
+            # generate with val_dl
+            val_dl = get_val_dataloader(**vars(args))
+            for i, batch in enumerate(tqdm(val_dl)):
+                # val step loop
+                prmat2c, pnotree, chord, prmat = batch
 
-            with torch.no_grad():
-                outputs = model.run(pnotree.to(device), chord.to(device), prmat.to(device), 0.0, 0.0, 0.0)
-            (
-                pitch_outs,
-                dur_outs,
-                dist_chd,
-                dist_rhy,
-                recon_root,
-                recon_chroma,
-                recon_bass,
-            ) = outputs
+                with torch.no_grad():
+                    outputs = model.run(pnotree.to(device), chord.to(device), prmat.to(device), 0.0, 0.0, 0.0)
+                (
+                    pitch_outs,
+                    dur_outs,
+                    dist_chd,
+                    dist_rhy,
+                    recon_root,
+                    recon_chroma,
+                    recon_bass,
+                ) = outputs
 
-            est_x, _, _ = model.decoder.output_to_numpy(pitch_outs, dur_outs)
-            estx_to_midi_file(est_x, os.path.join(output_dir, f"est_{i}.mid"))
+                est_x, _, _ = model.decoder.output_to_numpy(pitch_outs, dur_outs)
+                estx_to_midi_file(est_x, os.path.join(output_dir, f"est_{i}.mid"))
+        else:
+            # reconstruct midi files in mid_dir
+            loader = get_mid_dataloader(**vars(args))
+            for i, batch in enumerate(tqdm(loader)):
+                prmat2c, pnotree, chord, prmat = batch
+
+                with torch.no_grad():
+                    outputs = model.run(pnotree.to(device), chord.to(device), prmat.to(device), 0.0, 0.0, 0.0)
+                (
+                    pitch_outs,
+                    dur_outs,
+                    dist_chd,
+                    dist_rhy,
+                    recon_root,
+                    recon_chroma,
+                    recon_bass,
+                ) = outputs
+
+                est_x, _, _ = model.decoder.output_to_numpy(pitch_outs, dur_outs)
+                estx_to_midi_file(est_x, os.path.join(output_dir, f"est_{i}.mid"))
