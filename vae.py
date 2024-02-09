@@ -360,6 +360,21 @@ def add_filename_suffix(filename: str, suffix: str) -> str:
     """
     return filename[:filename.rfind(".")] + suffix + filename[filename.rfind("."):]
 
+def replace_extension(filename: str, new_extension: str):
+    """
+    replace the extension of a file with a new one
+
+    Args:
+        filename(str): old file name
+        new_extension(str): new extension. this should start with a dot.
+    Returns:
+        str: new file name with the new extension
+    """
+    old_name = Path(filename)
+    new_name = old_name.with_suffix(new_extension)
+    return str(new_name)
+
+
 class NBarsDataSample(Dataset):
     def __init__(self, data_samples: list[DataSample]) -> None:
         super().__init__()
@@ -407,8 +422,12 @@ class NBarsDataSample(Dataset):
             split = read_dict(os.path.join(TRAIN_SPLIT_DIR, "pop909_debug32.pickle"))
         else:
             split = read_dict(os.path.join(TRAIN_SPLIT_DIR, "pop909.pickle"))
+        split = list(split)
         split[0] = list(map(lambda x: add_filename_suffix(x, "_flatten"), split[0]))
         split[1] = list(map(lambda x: add_filename_suffix(x, "_flatten"), split[1]))
+        split[0] = list(map(lambda x: replace_extension(x, ".mid"), split[0]))
+        split[1] = list(map(lambda x: replace_extension(x, ".mid"), split[1]))
+
         print("load train valid set with:", kwargs)
         return cls.load_with_song_paths(
             split[0], debug=debug, **kwargs
@@ -420,7 +439,9 @@ class NBarsDataSample(Dataset):
             split = read_dict(os.path.join(TRAIN_SPLIT_DIR, "pop909_debug32.pickle"))
         else:
             split = read_dict(os.path.join(TRAIN_SPLIT_DIR, "pop909.pickle"))
+        split = list(split)
         split[1] = list(map(lambda x: add_filename_suffix(x, "_flatten"), split[1]))
+        split[1] = list(map(lambda x: replace_extension(x, ".mid"), split[1]))
         print("load valid set with:", kwargs)
         return cls.load_with_song_paths(split[1], debug=debug, **kwargs)
 
