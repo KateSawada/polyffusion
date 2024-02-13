@@ -333,7 +333,7 @@ def init_model(
         txt_size: int=256,
         num_channel: int=10,
         n_bars: int=1,
-    ) -> PolyDisVAE:
+    ) -> DisentangleVAE:
         chord_encoder = ChordEncoder(36, 256, chd_size)
         chord_decoder = ChordDecoder(z_dim=chd_size, n_step=n_bars*4)
         texture_encoder = TextureEncoder(256, 512, txt_size, num_channel, n_bars*16)
