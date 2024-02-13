@@ -793,7 +793,7 @@ if __name__ == "__main__":
 
         epoch = 0
         step = 0
-        best_val_loss = torch.tensor([1e10], device=device)
+        best_val_loss = np.array([1e10])
 
         model.train()
         param_scheduler.train()
