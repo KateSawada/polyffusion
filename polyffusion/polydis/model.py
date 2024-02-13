@@ -1,35 +1,31 @@
+import numpy as np
 import torch
 from torch import nn
-from torch.distributions import Normal
-import numpy as np
-from .ptvae import RnnEncoder, RnnDecoder, PtvaeDecoder, TextureEncoder
 from torch.distributions import Normal, kl_divergence
+
+from .ptvae import PtvaeDecoder, RnnDecoder, RnnEncoder, TextureEncoder
 
 
 def get_zs_from_dists(dists, sample=False):
     return [dist.rsample() if sample else dist.mean for dist in dists]
 
 
-def standard_normal(shape):
-    N = Normal(torch.zeros(shape), torch.ones(shape))
-    if torch.cuda.is_available():
-        N.loc = N.loc.cuda()
-        N.scale = N.scale.cuda()
+def standard_normal(shape, device="cpu"):
+    N = Normal(torch.zeros(shape).to(device), torch.ones(shape).to(device))
     return N
 
 
-def kl_with_normal(dist):
+def kl_with_normal(dist, device="cpu"):
     shape = dist.mean.size(-1)
-    normal = standard_normal(shape)
+    normal = standard_normal(shape, device=device)
     kl = kl_divergence(dist, normal).mean()
     return kl
 
 
 class DisentangleVAE(nn.Module):
-    def __init__(self, name, device, chd_encoder, rhy_encoder, decoder, chd_decoder):
+    def __init__(self, name, chd_encoder, rhy_encoder, decoder, chd_decoder):
         super(DisentangleVAE, self).__init__()
         self.name = name
-        self.device = device
         self.chd_encoder = chd_encoder
         self.rhy_encoder = rhy_encoder
         self.decoder = decoder
@@ -38,24 +34,24 @@ class DisentangleVAE(nn.Module):
 
     def confuse_prmat(self, pr_mat):
         non_zero_ent = torch.nonzero(pr_mat.long())
-        eps = torch.randint(0, 2, (non_zero_ent.size(0), ))
+        eps = torch.randint(0, 2, (non_zero_ent.size(0),))
         eps = ((2 * eps) - 1).long()
         confuse_ent = torch.clamp(non_zero_ent[:, 2] + eps, min=0, max=127)
-        pr_mat[non_zero_ent[:, 0], non_zero_ent[:, 1],
-               confuse_ent] = pr_mat[non_zero_ent[:, 0], non_zero_ent[:, 1],
-                                     non_zero_ent[:, 2]]
+        pr_mat[non_zero_ent[:, 0], non_zero_ent[:, 1], confuse_ent] = pr_mat[
+            non_zero_ent[:, 0], non_zero_ent[:, 1], non_zero_ent[:, 2]
+        ]
         return pr_mat
 
     def get_chroma(self, pr_mat):
         bs = pr_mat.size(0)
-        pad = torch.zeros(bs, 32, 4).to(self.device)
+        pad = torch.zeros(bs, 32, 4).to(pr_mat.device)
         pr_mat = torch.cat([pr_mat, pad], dim=-1)
         c = pr_mat.view(bs, 32, -1, 12).contiguous()
         c = c.sum(dim=-2)  # (bs, 32, 12)
         c = c.view(bs, 8, 4, 12)
         c = c.sum(dim=-2).float()
         c = torch.log(c + 1)
-        return c.to(self.device)
+        return c.to(pr_mat.device)
 
     def run(self, x, c, pr_mat, tfr1, tfr2, tfr3, confuse=True):
         # NOTE: dist means distribution
@@ -119,9 +115,9 @@ class DisentangleVAE(nn.Module):
 
     def chord_loss(self, c, recon_root, recon_chroma, recon_bass):
         loss_fun = nn.CrossEntropyLoss()
-        root = c[:, :, 0 : 12].max(-1)[-1].view(-1).contiguous()
-        chroma = c[:, :, 12 : 24].long().view(-1).contiguous()
-        bass = c[:, :, 24 :].max(-1)[-1].view(-1).contiguous()
+        root = c[:, :, 0:12].max(-1)[-1].view(-1).contiguous()
+        chroma = c[:, :, 12:24].long().view(-1).contiguous()
+        bass = c[:, :, 24:].max(-1)[-1].view(-1).contiguous()
 
         recon_root = recon_root.view(-1, 12).contiguous()
         recon_chroma = recon_chroma.view(-1, 2).contiguous()
@@ -134,8 +130,8 @@ class DisentangleVAE(nn.Module):
 
     def kl_loss(self, *dists):
         # kl = kl_with_normal(dists[0])
-        kl_chd = kl_with_normal(dists[0])
-        kl_rhy = kl_with_normal(dists[1])
+        kl_chd = kl_with_normal(dists[0], dists[0].loc.device).to(dists[0].loc.device)
+        kl_rhy = kl_with_normal(dists[1], dists[0].loc.device).to(dists[0].loc.device)
         kl_loss = kl_chd + kl_rhy
         return kl_loss, kl_chd, kl_rhy
 
@@ -197,7 +193,7 @@ class DisentangleVAE(nn.Module):
             z_chd, z_rhy = get_zs_from_dists([dist_chd, dist_rhy], sample)
             if chd_sample:
                 dist = Normal(torch.zeros_like(z_chd), torch.ones_like(z_chd))
-                z_chd = dist.sample().to(self.device)
+                z_chd = dist.sample().to(pr_mat.device)
             dec_z = torch.cat([z_chd, z_rhy], dim=-1)
             pitch_outs, dur_outs = self.decoder(dec_z, True, None, None, 0.0, 0.0)
             est_x, _, _ = self.decoder.output_to_numpy(pitch_outs, dur_outs)
@@ -243,23 +239,17 @@ class DisentangleVAE(nn.Module):
         return self.inference_decode(z_chd, z_rhy)
 
     def gt_sample(self, x):
-        out = x[:, :, 1 :].numpy()
+        out = x[:, :, 1:].numpy()
         return out
 
     def interp(
-        self,
-        pr_mat1,
-        c1,
-        pr_mat2,
-        c2,
-        interp_chd=False,
-        interp_rhy=False,
-        int_count=10
+        self, pr_mat1, c1, pr_mat2, c2, interp_chd=False, interp_rhy=False, int_count=10
     ):
         dist_chd1, dist_rhy1 = self.inference_encode(pr_mat1, c1)
         dist_chd2, dist_rhy2 = self.inference_encode(pr_mat2, c2)
-        [z_chd1, z_rhy1, z_chd2, z_rhy2
-        ] = get_zs_from_dists([dist_chd1, dist_rhy1, dist_chd2, dist_rhy2], False)
+        [z_chd1, z_rhy1, z_chd2, z_rhy2] = get_zs_from_dists(
+            [dist_chd1, dist_rhy1, dist_chd2, dist_rhy2], False
+        )
         if interp_chd:
             z_chds = self.interp_z(z_chd1, z_chd2, int_count)
         else:
@@ -291,8 +281,8 @@ class DisentangleVAE(nn.Module):
             omega = np.arccos(np.dot(p0 / np.linalg.norm(p0), p1 / np.linalg.norm(p1)))
             so = np.sin(omega)
             return (
-                np.sin((1.0 - t) * omega)[:, None] / so * p0[None] +
-                np.sin(t * omega)[:, None] / so * p1[None]
+                np.sin((1.0 - t) * omega)[:, None] / so * p0[None]
+                + np.sin(t * omega)[:, None] / so * p1[None]
             )
 
         percentages = np.linspace(0.0, 1.0, interpolation_count)
@@ -303,21 +293,20 @@ class DisentangleVAE(nn.Module):
         length = np.linspace(
             np.log(np.linalg.norm(z1)), np.log(np.linalg.norm(z2)), interpolation_count
         )
-        out = (dirs * np.exp(length[:, None]
-                            )).reshape([interpolation_count] + list(result_shape))
+        out = (dirs * np.exp(length[:, None])).reshape(
+            [interpolation_count] + list(result_shape)
+        )
         # out = np.array([(1 - t) * z1 + t * z2 for t in percentages])
-        return torch.from_numpy(out).to(self.device).float()
+        return torch.from_numpy(out).to(z1.device).float()
 
     @staticmethod
-    def init_model(device=None, chd_size=256, txt_size=256, num_channel=10):
+    def init_model(chd_size=256, txt_size=256, num_channel=10):
         name = "disvae"
-        if device is None:
-            device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         # chd_encoder = RnnEncoder(36, 1024, 256)
         chd_encoder = RnnEncoder(36, 1024, chd_size)
         # rhy_encoder = TextureEncoder(256, 1024, 256)
         rhy_encoder = TextureEncoder(256, 1024, txt_size, num_channel)
-        # pt_encoder = PtvaeEncoder(device=device, z_size=152)
+        # pt_encoder = PtvaeEncoder(z_size=152)
         # chd_decoder = RnnDecoder(z_dim=256)
         chd_decoder = RnnDecoder(z_dim=chd_size)
         # pt_decoder = PtvaeDecoder(note_embedding=None,
@@ -326,16 +315,11 @@ class DisentangleVAE(nn.Module):
             note_embedding=None, dec_dur_hid_size=64, z_size=chd_size + txt_size
         )
 
-        model = DisentangleVAE(
-            name, device, chd_encoder, rhy_encoder, pt_decoder, chd_decoder
-        )
+        model = DisentangleVAE(name, chd_encoder, rhy_encoder, pt_decoder, chd_decoder)
         return model
 
-    def load_model(self, model_path, map_location=None):
-        if map_location is None:
-            map_location = self.device
-        dic = torch.load(model_path, map_location=map_location)
+    def load_model(self, model_path):
+        dic = torch.load(model_path)
         for name in list(dic.keys()):
             dic[name.replace("module.", "")] = dic.pop(name)
         self.load_state_dict(dic)
-        self.to(self.device)

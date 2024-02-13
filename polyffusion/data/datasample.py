@@ -4,22 +4,22 @@ This is for directly get DataSampleNpz from a midi file when inference.
 """
 
 import sys
-import os
-import torch
+
 import numpy as np
+import torch
+
 from data.midi_to_data import get_data_for_single_midi
-
-from torch.utils.data import Dataset
-from utils import (
-    nmat_to_pianotree_repr, prmat2c_to_midi_file, nmat_to_prmat2c, estx_to_midi_file,
-    nmat_to_prmat, prmat_to_midi_file, chd_to_onehot, chd_to_midi_file
-)
-from utils import read_dict
 from dirs import *
-
-SEG_LGTH = 32
-N_BIN = 4
-SEG_LGTH_BIN = SEG_LGTH * N_BIN
+from utils import (
+    chd_to_midi_file,
+    chd_to_onehot,
+    estx_to_midi_file,
+    nmat_to_pianotree_repr,
+    nmat_to_prmat,
+    nmat_to_prmat2c,
+    prmat2c_to_midi_file,
+    prmat_to_midi_file,
+)
 
 
 class DataSample:
@@ -28,7 +28,8 @@ class DataSample:
     `__getitem__` is used for retrieving ready-made input segments to the model
     it will be called in DataLoader
     """
-    def __init__(self, data) -> None:
+
+    def __init__(self, data, n_bars=8) -> None:
         """
         notes (onset_beat, onset_bin, duration, pitch, velocity)
         start_table : i-th row indicates the starting row of the "notes" array
@@ -38,11 +39,21 @@ class DataSample:
         x: orchestra
         y: piano
 
-        dict : each downbeat corresponds to a SEG_LGTH-long segment
+        dict : each downbeat corresponds to a self.seg_lgth-long segment
             nmat: note matrix (same format as input npz files)
             pr_mat: piano roll matrix (the format for texture decoder)
             pnotree: pnotree format (used for calculating loss & teacher-forcing)
+        ---
+        Parameters
+
+        data: output of polyffusion.data.midi_to_data.get_data_for_single_midi()
+        n_bars(int): bars in one sample
         """
+        self.n_bars = n_bars  # Number of bars
+        self.n_beats_per_bar = 4  # Number of beats per bar, assuming 4/4 time signature
+        self.n_bin = 4  # Number of bins per beat
+        self.seg_lgth = self.n_bars * self.n_beats_per_bar  # Number of beats in the segment
+        self.seg_lgth_bin = self.seg_lgth * self.n_bin  # Total number of bins in the segment
 
         # self.notes = None
         # self.chord = None
@@ -84,11 +95,11 @@ class DataSample:
         """
 
         s_ind = self.start_table[db]
-        if db + SEG_LGTH_BIN in self.start_table:
-            e_ind = self.start_table[db + SEG_LGTH_BIN]
-            seg_mats = self.notes[s_ind : e_ind]
+        if db + self.seg_lgth_bin in self.start_table:
+            e_ind = self.start_table[db + self.seg_lgth_bin]
+            seg_mats = self.notes[s_ind:e_ind]
         else:
-            seg_mats = self.notes[s_ind :]  # NOTE: may be wrong
+            seg_mats = self.notes[s_ind:]  # NOTE: may be wrong
         return seg_mats.copy()
 
     @staticmethod
@@ -112,7 +123,7 @@ class DataSample:
 
     def store_nmat_seg(self, db):
         """
-        Get note matrix (SEG_LGTH) of orchestra(x) at db position
+        Get note matrix (self.seg_lgth) of orchestra(x) at db position
         """
         if self._nmat_dict[db] is not None:
             return
@@ -125,33 +136,33 @@ class DataSample:
 
     def store_prmat2c_seg(self, db):
         """
-        Get piano roll format (SEG_LGTH) from note matrices at db position
+        Get piano roll format (self.seg_lgth) from note matrices at db position
         """
         if self._prmat2c_dict[db] is not None:
             return
 
-        prmat2c = nmat_to_prmat2c(self._nmat_dict[db], SEG_LGTH_BIN)
+        prmat2c = nmat_to_prmat2c(self._nmat_dict[db], self.seg_lgth_bin)
         self._prmat2c_dict[db] = prmat2c
 
     def store_prmat_seg(self, db):
         """
-        Get piano roll format (SEG_LGTH) from note matrices at db position
+        Get piano roll format (self.seg_lgth) from note matrices at db position
         """
         if self._prmat_dict[db] is not None:
             return
 
-        prmat2c = nmat_to_prmat(self._nmat_dict[db], SEG_LGTH_BIN)
+        prmat2c = nmat_to_prmat(self._nmat_dict[db], self.seg_lgth_bin)
         self._prmat_dict[db] = prmat2c
 
     def store_pnotree_seg(self, db):
         """
-        Get pnotree representation (SEG_LGTH) from nmat
+        Get pnotree representation (self.seg_lgth) from nmat
         """
         if self._pnotree_dict[db] is not None:
             return
 
         self._pnotree_dict[db] = nmat_to_pianotree_repr(
-            self._nmat_dict[db], n_step=SEG_LGTH_BIN
+            self._nmat_dict[db], n_step=self.seg_lgth_bin
         )
 
     def _store_seg(self, db):
@@ -171,12 +182,10 @@ class DataSample:
         seg_prmat2c = self._prmat2c_dict[db]
         seg_prmat = self._prmat_dict[db]
         seg_pnotree = self._pnotree_dict[db]
-        chord = self.chord[db // N_BIN : db // N_BIN + SEG_LGTH]
-        if chord.shape[0] < SEG_LGTH:
+        chord = self.chord[db // self.n_bin : db // self.n_bin + self.seg_lgth]
+        if chord.shape[0] < self.seg_lgth:
             chord = np.append(
-                chord,
-                np.zeros([SEG_LGTH - chord.shape[0], 14], dtype=np.int32),
-                axis=0
+                chord, np.zeros([self.seg_lgth - chord.shape[0], 14], dtype=np.int32), axis=0
             )
 
         return seg_prmat2c, seg_pnotree, chord, seg_prmat
@@ -202,7 +211,7 @@ class DataSample:
             chord.append(chd_to_onehot(seg_chord))
             prmat.append(seg_prmat)
 
-            idx += SEG_LGTH_BIN
+            idx += self.seg_lgth_bin
             while i < len(self) and self.db_pos[i] < idx:
                 i += 1
         prmat2c = torch.from_numpy(np.array(prmat2c, dtype=np.float32))

@@ -1,9 +1,10 @@
 # local
 /data/
-pretrained/
-result/
-exp/
-eval/
+/pretrained/
+/result*/
+/exp/
+/eval/
+/wandb/
 
 
 # Byte-compiled / optimized / DLL files
