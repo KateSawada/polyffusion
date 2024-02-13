@@ -847,7 +847,7 @@ if __name__ == "__main__":
         # TODO: 既存のCollatorの名前変えたほうが良いかも Collator -> DefaultVARCollator とか
 
         collate_fn = CustomVAECollator(vae, is_sample)
-        train_dl, val_dl = get_train_val_dataloaders_n_bars(batch_size=batch_size, num_workers=num_workers, pin_memory=pin_memory, collate_fn=collate_fn, n_bars=vae_yaml["n_bars"], debug=is_debug)
+        train_dl, val_dl = get_train_val_dataloaders_n_bars(batch_size=batch_size, num_workers=num_workers, pin_memory=pin_memory, collate_fn=collate_fn, n_bars=vae_yaml["n_bars"], debug=debug)
         d_model = vae_yaml["chd_size"] + vae_yaml["txt_size"]
 
 
