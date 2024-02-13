@@ -1,9 +1,22 @@
+"""
+train latent sequence transformer
+usage example(using pretrained DisentangleVAE):
+python train_transformer.py --output_dir=result/debug --batch_size=4 --max_epoch=4 --pin_memory=False --n_layers=2 --custom_vae_class=polyffusion.polydis.model.DisentangleVAE --custom_vae_yaml=result/vae_0.1_0.0001/02-01_174905/params.yaml --custom_vae_ckpt=result/vae_0.1_0.0001/02-01_174905/chkpts/best_weights.pt --is_sample
+"""
 from __future__ import annotations
+import os
+import sys
+sys.path.append(os.path.join(os.path.dirname(__file__), "polyffusion"))
+sys.path.append(os.path.join(os.path.dirname(__file__), "polyffusion", "chord_extractor"))
+from typing import Callable
 import torch
 from torch import nn
 from torch.nn import MultiheadAttention, LayerNorm
 from torch.nn.functional import relu
 import numpy as np
+import yaml
+import importlib
+from omegaconf import OmegaConf
 
 import math
 class PositionalEncoding(nn.Module):
@@ -215,17 +228,18 @@ class GenerativeTransformerModel(nn.Module):
 
 
 from polyffusion.utils import load_pretrained_chd_enc_dec, load_pretrained_txt_enc
-from polyffusion.dirs import PT_CHD_8BAR_PATH, PT_POLYDIS_PATH
-from polyffusion.params.params_sdf_chd8bar import params as params_chd8bar
-from polyffusion.params.params_sdf_txt import params as params_txt
+from polyffusion.dirs import PT_CHD_8BAR_PATH, PT_POLYDIS_PATH, POP909_DATA_DIR
 
 # データローダーの読み込み
 from typing import Any
 import os
+import tempfile
+from pathlib import Path
 from torch.utils.data import DataLoader, Dataset
 import numpy as np
 from polyffusion.dirs import TRAIN_SPLIT_DIR
 from polyffusion.data.dataset import PianoOrchDataset, DataSampleNpz
+from polyffusion.data.datasample import DataSample
 from polyffusion.dl_modules.chord_enc import RnnEncoder as ChordEncoder
 from polyffusion.dl_modules.txt_enc import TextureEncoder
 from polyffusion.utils import (
@@ -274,10 +288,82 @@ class WholeSongDataset(Dataset):
                                         )
 
 
+from vae import add_filename_suffix, replace_extension, get_data_for_single_midi  # TODO: utilsとかにまとめる
+class NBarsDataSample(Dataset):
+    # TODO: これを改造する
+    def __init__(self, data_samples: list[DataSample]) -> None:
+        super().__init__()
+        self.data_samples = data_samples
+
+    def __len__(self):
+        return len(self.data_samples)
+
+    def __getitem__(self, index):
+        return self.data_samples[index]
+
+    @classmethod
+    def load_with_song_paths(
+        cls, song_paths, data_dir=POP909_DATA_DIR, debug=False, **kwargs,
+    ):
+        data_samples = []
+        with tempfile.TemporaryDirectory() as temp_dir:
+            for song_path in tqdm(song_paths, desc="DataSample loading"):
+                mid_song_path = os.path.join(
+                    data_dir,
+                    song_path,
+                )
+                data_samples += [
+                    DataSample(
+                        get_data_for_single_midi(
+                            mid_song_path,
+                            os.path.join(temp_dir, "chords_extracted.out")
+                        ),
+                        kwargs["n_bars"]
+                    )
+                ]
+        return cls(data_samples)
+
+    @classmethod
+    def load_train_and_valid_sets(cls, debug=False, **kwargs,):
+        if debug:
+            split = read_dict(os.path.join(TRAIN_SPLIT_DIR, "pop909_debug32.pickle"))
+        else:
+            split = read_dict(os.path.join(TRAIN_SPLIT_DIR, "pop909.pickle"))
+        split = list(split)
+        split[0] = list(map(lambda x: add_filename_suffix(x, "_flatten"), split[0]))
+        split[1] = list(map(lambda x: add_filename_suffix(x, "_flatten"), split[1]))
+        split[0] = list(map(lambda x: replace_extension(x, ".mid"), split[0]))
+        split[1] = list(map(lambda x: replace_extension(x, ".mid"), split[1]))
+
+        print("load train valid set with:", kwargs)
+        return cls.load_with_song_paths(
+            split[0], debug=debug, **kwargs
+        ), cls.load_with_song_paths(split[1], debug=debug, **kwargs)
+
+    @classmethod
+    def load_valid_sets(cls, debug=False, **kwargs,):
+        if debug:
+            split = read_dict(os.path.join(TRAIN_SPLIT_DIR, "pop909_debug32.pickle"))
+        else:
+            split = read_dict(os.path.join(TRAIN_SPLIT_DIR, "pop909.pickle"))
+        split = list(split)
+        split[1] = list(map(lambda x: add_filename_suffix(x, "_flatten"), split[1]))
+        split[1] = list(map(lambda x: replace_extension(x, ".mid"), split[1]))
+        print("load valid set with:", kwargs)
+        return cls.load_with_song_paths(split[1], debug=debug, **kwargs)
+
+    @classmethod
+    def load_set_with_mid_dir_path(cls, mid_dir_path, **kwargs):
+        directory = Path(mid_dir_path)
+        midi_file_names = [f.name for f in directory.iterdir() if f.is_file() and f.suffix == ".mid"]
+        print(f"loaded midi files:", midi_file_names)
+        return cls.load_with_song_paths(midi_file_names, mid_dir_path, **kwargs)
+
+
 def sample_shift():
     return np.random.choice(np.arange(-6, 6), 1)[0]
 
-class Collator:
+class DefaultVAECollator:
     def __init__(self, chord_enc: ChordEncoder, txt_enc: TextureEncoder):
         self.chord_enc = chord_enc
         self.txt_enc = txt_enc
@@ -410,17 +496,148 @@ class Collator:
             return cond, seq_length, prmat2c, pnotree, chord, prmat
 
 
-def get_train_val_dataloaders(
-    batch_size, num_workers=0, pin_memory=False, debug=False, **kwargs
+class CustomVAECollator:
+    def __init__(self, vae: nn.Module, is_sample: bool=True):
+        """_summary_
+
+        Args:
+            vae (nn.Module): vae
+            is_sample (bool, optional): sampled latent value or estimated mean of distribution. Defaults to True.
+        """
+        self.vae = vae
+        self.is_sample = is_sample
+        self.timesteps_per_sample = 32
+
+    def _encode(self, prmat, chd):
+        """extract latent representation from prmat and chd
+
+        Args:
+            prmat (torch.Tensor, shape=(n_bars, 16, 128)): pianoroll matrix
+            chd (torch.Tensor, shape=(n_bars, 4, 36): chord matrix
+
+        Returns:
+            torch.Tensor: latent representation. shape=()
+        """
+        # for prmat_seg in range(len(prmat)):
+        dist_chd, dist_rhy = self.vae.inference_encode(prmat, chd)
+        if self.is_sample:
+            z_chd = dist_chd.rsample()
+            z_rhy = dist_rhy.rsample()
+        else:
+            z_chd = dist_chd.mean
+            z_rhy = dist_rhy.mean
+        z = torch.cat((z_chd, z_rhy), dim=1)
+        z = z.unsqueeze(1)  # (#B, 1, 256*4)
+        return z
+
+    def __call__(
+            self,
+            batch: list[DataSampleNpz],
+            shift: bool) -> tuple[
+                torch.Tensor,
+                list[torch.Tensor],
+                list[torch.Tensor],
+                list[torch.Tensor],
+                list[torch.Tensor]]:
+
+        prmat2c = []
+        pnotree = []
+        chord = []
+        prmat = []
+        song_fn = []
+
+        conditions = []
+
+        max_sequence_length = 0
+
+        seq_length = []
+
+        for b in batch:
+            # b[0]: seg_pnotree; b[1]: seg_pnotree_y
+            b = b.get_whole_song_data()
+            seg_prmat2cs = b[0]
+            seg_pnotrees = b[1]
+            seg_chords = b[2]
+            seg_prmats = b[3]
+
+            # update max_sequence_length
+            if len(seg_prmat2cs) > max_sequence_length:
+                max_sequence_length = len(seg_prmat2cs)
+
+            seq_length.append(len(seg_prmat2cs))
+
+            prmat2cs = []
+            pnotrees = []
+            chords = []
+            prmats = []
+
+            if shift:
+                shift_pitch = sample_shift()
+            else:
+                shift_pitch = 0
+
+            # loop for each segment
+            for i in range(len(seg_prmat2cs)):
+                seg_prmat2c = pr_mat_pitch_shift(seg_prmat2cs[i].detach().cpu().numpy(), shift_pitch)
+                seg_pnotree = pianotree_pitch_shift(seg_pnotrees[i].detach().cpu().numpy(), shift_pitch)
+                seg_chord = chd_pitch_shift(onehot_to_chd(seg_chords[i].detach().cpu().numpy()).astype(int), shift_pitch)
+                seg_prmat = pr_mat_pitch_shift(seg_prmats[i].detach().cpu().numpy(), shift_pitch)
+
+                seg_chord = chd_to_onehot(seg_chord)
+
+                prmat2cs.append(seg_prmat2c)
+                pnotrees.append(seg_pnotree)
+                chords.append(seg_chord)
+                prmats.append(seg_prmat)
+
+            # encode one song
+            prmat2cs = torch.Tensor(np.array(prmat2cs)).float()
+            pnotrees = torch.Tensor(np.array(pnotrees)).long()
+            chords = torch.Tensor(np.array(chords)).float()
+            prmats = torch.Tensor(np.array(prmats)).float()
+
+            conditions.append(self._encode(prmats, chords))
+
+            prmat2c.append(prmat2cs)
+            pnotree.append(pnotrees)
+            chord.append(chords)
+            prmat.append(prmats)
+
+            if len(b) > 4:
+                song_fn.append(b[4])
+
+        # pad to max_sequence_length
+        conditions = torch.nn.utils.rnn.pad_sequence(conditions, batch_first=True)
+        conditions = conditions.squeeze(2)
+
+        if len(song_fn) > 0:
+            return conditions, seq_length, prmat2c, pnotree, chord, prmat, song_fn
+        else:
+            return conditions, seq_length, prmat2c, pnotree, chord, prmat
+
+
+class CollatorWrapper:
+    def __init__(self, collator: Callable, shift: bool):
+        self.collator = collator
+        self.shift = shift
+
+    def __call__(self, batch: list[DataSampleNpz]) -> Any:
+        return self.collator(batch, self.shift)
+
+
+def get_train_val_dataloaders_8bars(
+    batch_size, num_workers=0, pin_memory=False, debug=False, collate_fn:Callable=callable, **kwargs
 ):
     train_dataset, val_dataset = WholeSongDataset.load_train_and_valid_sets(
         **kwargs
     )
+    train_collate_fn = CollatorWrapper(collate_fn, shift=True)
+    valid_collate_fn = CollatorWrapper(collate_fn, shift=False)
     train_dl = DataLoader(
         train_dataset,
         batch_size,
         True,
-        collate_fn=lambda x: collate_fn(x, shift=True),
+        collate_fn=train_collate_fn,
         num_workers=num_workers,
         pin_memory=pin_memory
     )
@@ -428,7 +645,39 @@ def get_train_val_dataloaders(
         val_dataset,
         batch_size,
         True,
-        collate_fn=lambda x: collate_fn(x, shift=False),
+        collate_fn=valid_collate_fn,
+        num_workers=num_workers,
+        pin_memory=pin_memory
+    )
+    print(
+        f"Dataloader ready: batch_size={batch_size}, num_workers={num_workers}, pin_memory={pin_memory}, {kwargs}"
+    )
+    return train_dl, val_dl
+
+
+def get_train_val_dataloaders_n_bars(
+    batch_size, num_workers=0, pin_memory=False, debug=False, n_bars=1, collate_fn:Callable=callable, **kwargs
+):
+    train_dataset, val_dataset = NBarsDataSample.load_train_and_valid_sets(
+        debug=debug,
+        n_bars=n_bars,
+        **kwargs
+    )
+    train_collate_fn = CollatorWrapper(collate_fn, shift=True)
+    valid_collate_fn = CollatorWrapper(collate_fn, shift=False)
+    train_dl = DataLoader(
+        train_dataset,
+        batch_size,
+        True,
+        collate_fn=train_collate_fn,
+        num_workers=num_workers,
+        pin_memory=pin_memory
+    )
+    val_dl = DataLoader(
+        val_dataset,
+        batch_size,
+        True,
+        collate_fn=valid_collate_fn,
         num_workers=num_workers,
         pin_memory=pin_memory
     )
@@ -463,8 +712,15 @@ def get_args():
     parser.add_argument("--heads_num", type=int, default=1)
     parser.add_argument("--n_layers", type=int, default=6)
     parser.add_argument("--weight_stop_estimation", type=float, default=5.0)
+    parser.add_argument("--use_default_vae", action="store_true")
     parser.add_argument("--use_chd_enc", action="store_true")
     parser.add_argument("--use_txt_enc", action="store_true")
+    parser.add_argument("--custom_vae_class", type=str, default=None, help="model module path and class name. e.g. hoge.fuga.Piyo")
+    parser.add_argument("--custom_vae_yaml", type=str, default=None)
+    parser.add_argument("--custom_vae_ckpt", type=str, default=None)
+    parser.add_argument("--is_sample", action="store_true")
+
+    parser.add_argument("--debug", action="store_true")
     args = parser.parse_args()
     return args
 
@@ -486,6 +742,25 @@ def save_to_checkpoint(checkpoint_dir, model, step, epoch, optimizer, is_best=Fa
             f.write("\n")
             f.write(str(best_val_loss))
 
+def parse_model_spec(model_spec: str) -> tuple[str, str]:
+    """
+    extract module path and class name from model specification string
+    Args:
+        model_spec(str): string as 'module_path.ClassName' format
+
+    Returns:
+        str: module path
+        str: class name
+    """
+    parts = model_spec.rsplit(".", 1)  # 最後のドットで分割
+    if len(parts) != 2:
+        raise ValueError("model_spec must be 'module_path.ClassName' format")
+    return parts[0], parts[1]  # (モジュールパス, クラス名)
+
+def import_class(module_path, class_name):
+    module = importlib.import_module(module_path)
+    return getattr(module, class_name)
+
 if __name__ == "__main__":
     args = get_args()
     output_dir = os.path.join(args.output_dir, datetime.now().strftime('%m-%d_%H%M%S'))
@@ -505,41 +780,76 @@ if __name__ == "__main__":
     heads_num = args.heads_num
     n_layers = args.n_layers
     weight_stop_estimation = args.weight_stop_estimation
+    use_default_vae = args.use_default_vae
     use_chd_enc = args.use_chd_enc
     use_txt_enc = args.use_txt_enc
+    custom_vae_class = args.custom_vae_class
+    custom_vae_yaml = args.custom_vae_yaml
+    custom_vae_ckpt_enc = args.custom_vae_ckpt
+    is_sample = args.is_sample
 
-    if not (use_chd_enc or use_txt_enc):
-        raise ValueError("use_chd_enc or use_txt_enc must be True")
+    debug = args.debug
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     with open(f"{output_dir}/params.json", "w") as params_file:
         json.dump(vars(args), params_file)
+    with open(f"{output_dir}/params.yaml", "w") as f:
+        yaml.dump(vars(args), f)
 
-    d_model = 0
+    if use_default_vae:
+        # use polyffusion pretrained vae
+        if not (use_chd_enc or use_txt_enc):
+            raise ValueError("use_chd_enc or use_txt_enc must be True")
 
-    if use_chd_enc:
-        # pretrained encoderの読み込み
-        params = params_chd8bar
-        chord_enc, chord_dec = load_pretrained_chd_enc_dec(
-            PT_CHD_8BAR_PATH, params.chd_input_dim, params.chd_z_input_dim,
-            params.chd_hidden_dim, params.chd_z_dim, params.chd_n_step
-        )
-        d_model += params.chd_z_dim
+        d_model = 0
+        if use_chd_enc:
+            # pretrained encoderの読み込み
+            params_chd8bar = OmegaConf.load("polyffusion/params/sdf_chd_8bar.yaml")
+            params = params_chd8bar
+            chord_enc, chord_dec = load_pretrained_chd_enc_dec(
+                PT_CHD_8BAR_PATH, params.chd_input_dim, params.chd_z_input_dim,
+                params.chd_hidden_dim, params.chd_z_dim, params.chd_n_step
+            )
+            d_model += params.chd_z_dim
+        else:
+            chord_enc = None
+
+        if use_txt_enc:
+            params_txt = OmegaConf.load("polyffusion/params/sdf_txt.yaml")
+            params = params_txt
+            txt_enc = load_pretrained_txt_enc(
+                PT_POLYDIS_PATH, params.txt_emb_size, params.txt_hidden_dim,
+                params.txt_z_dim, params.txt_num_channel
+            )
+            d_model += params.txt_z_dim * 4
+        else:
+            txt_enc = None
+
+        collate_fn = DefaultVAECollator(chord_enc, txt_enc)
+        train_dl, val_dl = get_train_val_dataloaders_8bars(batch_size, collate_fn=collate_fn, num_workers=num_workers, pin_memory=pin_memory)
     else:
-        chord_enc = None
+        # load custom vae model
+        if custom_vae_yaml is None or custom_vae_ckpt_enc is None:
+        # TODO: use argument `custom_vae_class`
+        # if custom_vae_yaml is None or custom_vae_ckpt_enc is None or custom_vae_class is None:
+            raise ValueError("custom_vae_yaml, custom_vae_ckpt_enc and custom_vae_class must be specified")
 
-    if use_txt_enc:
-        params = params_txt
-        txt_enc = load_pretrained_txt_enc(
-            PT_POLYDIS_PATH, params.txt_emb_size, params.txt_hidden_dim,
-            params.txt_z_dim, params.txt_num_channel
-        )
-        d_model += params.txt_z_dim * 4
-    else:
-        txt_enc = None
+        # TODO: load and instantiate model by argument `custom_vae_class`
+        # module_path, class_name = parse_model_spec(model_spec=custom_vae_class)
+        # vae = import_class(module_path, class_name)(ARGS)
 
-    collate_fn = Collator(chord_enc, txt_enc)
-    train_dl, val_dl = get_train_val_dataloaders(batch_size)
+        with open(custom_vae_yaml, 'r', encoding='utf-8') as file:
+            vae_yaml = yaml.safe_load(file)
+
+        # TODO: ここをinit_modelに頼らないようにする
+        from vae import init_model
+        vae = init_model(device, vae_yaml["chd_size"], vae_yaml["txt_size"], vae_yaml["num_channel"], vae_yaml["n_bars"])
+        # TODO: 既存のCollatorの名前変えたほうが良いかも Collator -> DefaultVARCollator とか
+
+        collate_fn = CustomVAECollator(vae, is_sample)
+        train_dl, val_dl = get_train_val_dataloaders_n_bars(batch_size=batch_size, num_workers=num_workers, pin_memory=pin_memory, collate_fn=collate_fn, n_bars=vae_yaml["n_bars"], debug=is_debug)
+        d_model = vae_yaml["chd_size"] + vae_yaml["txt_size"]
+
 
     # モデルにデータを流してみる
     model = GenerativeTransformerModel(
