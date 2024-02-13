@@ -506,7 +506,6 @@ class CustomVAECollator:
         """
         self.vae = vae
         self.is_sample = is_sample
-        self.timesteps_per_sample = 32
 
     def _encode(self, prmat, chd):
         """extract latent representation from prmat and chd
@@ -844,7 +843,10 @@ if __name__ == "__main__":
         # TODO: ここをinit_modelに頼らないようにする
         from vae import init_model
         vae = init_model(device, vae_yaml["chd_size"], vae_yaml["txt_size"], vae_yaml["num_channel"], vae_yaml["n_bars"])
-        # TODO: 既存のCollatorの名前変えたほうが良いかも Collator -> DefaultVARCollator とか
+        # TODO: ここをcpuでなくてcudaなどを使えるようにしたい
+        vae.load_state_dict(torch.load(custom_vae_ckpt_enc, map_location="cpu")["model"])
+        vae.chd_encoder = vae.chd_encoder.to("cpu")
+        vae.rhy_encoder = vae.rhy_encoder.to("cpu")
 
         collate_fn = CustomVAECollator(vae, is_sample)
         train_dl, val_dl = get_train_val_dataloaders_n_bars(batch_size=batch_size, num_workers=num_workers, pin_memory=pin_memory, collate_fn=collate_fn, n_bars=vae_yaml["n_bars"], debug=debug)
