@@ -803,7 +803,7 @@ if __name__ == "__main__":
         d_model = 0
         if use_chd_enc:
             # pretrained encoderの読み込み
-            params_chd8bar = OmegaConf.load("polyffusion/params/sdf_chd_8bar.yaml")
+            params_chd8bar = OmegaConf.load("polyffusion/params/sdf_chd8bar.yaml")
             params = params_chd8bar
             chord_enc, chord_dec = load_pretrained_chd_enc_dec(
                 PT_CHD_8BAR_PATH, params.chd_input_dim, params.chd_z_input_dim,
