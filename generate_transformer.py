@@ -5,11 +5,12 @@ import json
 import torch
 import numpy as np
 import matplotlib.pyplot as plt
-
-from polyffusion.params.params_sdf_chd8bar import params as params_chd8bar
-from polyffusion.params.params_sdf_txt import params as params_txt
+from omegaconf import OmegaConf
 
 from train_transformer import GenerativeTransformerModel
+
+params_chd8bar = OmegaConf.load("polyffusion/params/sdf_chd8bar.yaml")
+params_txt = OmegaConf.load("polyffusion/params/sdf_txt.yaml")
 
 
 def get_json_content(json_path):
@@ -36,10 +37,12 @@ if __name__ == "__main__":
     params = get_json_content(os.path.join(args.trained_dir, "params.json"))
 
     d_model = 0
-    if params["use_chd_enc"]:
+    if "use_chd_enc" in params.keys() and params["use_chd_enc"]:
         d_model += params_chd8bar.chd_z_dim
-    if params["use_txt_enc"]:
+    if "use_txt_enc" in params.keys() and params["use_txt_enc"]:
         d_model += params_txt.txt_z_dim * 4
+
+    d_model = 512  # TODO: load from config file
 
     model = GenerativeTransformerModel(
         d_model=d_model,
