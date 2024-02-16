@@ -905,12 +905,10 @@ if __name__ == "__main__":
             # backward
             optimizer.zero_grad()
             loss.backward()
-            optimizer.step()
-
-
             grad_norm = nn.utils.clip_grad.clip_grad_norm_(
                 model.parameters(), max_grad_norm
             )
+            optimizer.step()
 
             losses = {
                 "loss": loss.item(),
