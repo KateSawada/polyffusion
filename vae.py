@@ -9,6 +9,11 @@ usage
 
 # test with midi files
 `$ python vae.py --task test --mid_dir /path/to/midi_dir --ckpt /path/to/ckpt.pt`
+
+# encode midi files
+`$ python vae.py --task encode --output_dir result/generate --ckpt path/to/ckpt.pt --mid_dir data/train_split_pnt/valid_mid_small`
+then, got npz files in result/generate as filename.mid.npz
+They have keys `dist_chd_mean`, `dist_rhy_mean`, `dist_chd_scale` and `dist_rhy_scale`.
 """
 from __future__ import annotations
 import os
