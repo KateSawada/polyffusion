@@ -21,7 +21,9 @@ import argparse
 from datetime import datetime
 import json
 import tempfile
+import shutil
 from pathlib import Path
+import glob
 
 import torch
 from torch.utils.data import Dataset, DataLoader
@@ -651,7 +653,7 @@ def _accumulate_loss_dic(writer_names, loss_dic, loss_items):
 
 def get_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--task", type=str, default="train", help="train or test")
+    parser.add_argument("--task", type=str, default="train", help="train, test or encode")
     parser.add_argument("--debug", default=False, action="store_true")
     parser.add_argument("--output_dir", type=str, default="result/polydis_vae")
     parser.add_argument("--batch_size", type=int, default=16)
@@ -697,6 +699,13 @@ def get_args():
         default=None,
         help="midi directory",
         required=False,
+    )
+    parser.add_argument(
+        "--latent_npy_dir",
+        type=str,
+        default=None,
+        help="latent npy directory",
+        required=False
     )
 
     args = parser.parse_args()
@@ -907,6 +916,13 @@ if __name__ == "__main__":
 
                 est_x, _, _ = model.decoder.output_to_numpy(pitch_outs, dur_outs)
                 estx_to_midi_file(est_x, os.path.join(output_dir, f"est_{i}.mid"))
+        elif (args.latent_npy_dir is not None):
+            # decode from latent npy files
+            npy_files = glob.glob(os.path.join(args.latent_npy_dir, "*.npy"))
+            npys = []
+            for npy_file in npy_files:
+                npys.append(np.load(npy_file))
+
         else:
             # generate with val_dl
             val_dl = get_val_dataloader(**vars(args))
@@ -928,3 +944,51 @@ if __name__ == "__main__":
 
                 est_x, _, _ = model.decoder.output_to_numpy(pitch_outs, dur_outs)
                 estx_to_midi_file(est_x, os.path.join(output_dir, f"est_{i}.mid"))
+    elif args.task == "encode":
+        # encode midi files in mid_dir
+        if (mid_dir is None):
+            raise ValueError("midi directory is not specified.")
+        model = init_model(device, chd_size, txt_size, num_channel, n_bars)
+        state_dict = torch.load(ckpt)
+        model.load_state_dict(state_dict["model"])
+        model.eval()
+        # fix batch size to 1
+        args.batch_size = 1
+
+        # mid files
+        mid_files = glob.glob(os.path.join(mid_dir, "*.mid"))
+        for mid_file in mid_files:
+            with tempfile.TemporaryDirectory() as temp_dir:
+                # copy midi file to temp_dir
+                print(shutil.copy(mid_file, temp_dir))
+                args.mid_dir = temp_dir
+                loader = get_mid_dataloader(**vars(args))
+                dist_chd_means = []
+                dist_rhy_means = []
+                dist_chd_scales = []
+                dist_rhy_scales = []
+                for i, batch in enumerate(tqdm(loader)):
+                    prmat2c, pnotree, chord, prmat = batch
+                    with torch.no_grad():
+                        outputs = model.inference_encode(prmat.to(device), chord.to(device))
+                    dist_chd, dist_rhy = outputs
+                    dist_chd_mean = dist_chd.mean.cpu().numpy()
+                    dist_rhy_mean = dist_rhy.mean.cpu().numpy()
+                    dist_chd_scale = dist_chd.scale.cpu().numpy()
+                    dist_rhy_scale = dist_rhy.scale.cpu().numpy()
+                    dist_chd_means.append(dist_chd_mean)
+                    dist_rhy_means.append(dist_rhy_mean)
+                    dist_chd_scales.append(dist_chd_scale)
+                    dist_rhy_scales.append(dist_rhy_scale)
+                dist_chd_means = np.array(dist_chd_means)
+                dist_rhy_means = np.array(dist_rhy_means)
+                dist_chd_scales = np.array(dist_chd_scales)
+                dist_rhy_scales = np.array(dist_rhy_scales)
+                # save to npz containing mean and scale
+                np.savez(
+                    os.path.join(output_dir, f"latent_{os.path.basename(mid_file)}.npz"),
+                    dist_chd_mean=dist_chd_means,
+                    dist_rhy_mean=dist_rhy_means,
+                    dist_chd_scale=dist_chd_scales,
+                    dist_rhy_scale=dist_rhy_scales,
+                )
