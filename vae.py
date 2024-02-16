@@ -887,11 +887,10 @@ if __name__ == "__main__":
         model.load_state_dict(state_dict["model"])
         model.eval()
 
-        if (mid_dir is None):
-            # generate with val_dl
-            val_dl = get_val_dataloader(**vars(args))
-            for i, batch in enumerate(tqdm(val_dl)):
-                # val step loop
+        if (mid_dir is not None):
+            # reconstruct midi files in mid_dir
+            loader = get_mid_dataloader(**vars(args))
+            for i, batch in enumerate(tqdm(loader)):
                 prmat2c, pnotree, chord, prmat = batch
 
                 with torch.no_grad():
@@ -909,9 +908,10 @@ if __name__ == "__main__":
                 est_x, _, _ = model.decoder.output_to_numpy(pitch_outs, dur_outs)
                 estx_to_midi_file(est_x, os.path.join(output_dir, f"est_{i}.mid"))
         else:
-            # reconstruct midi files in mid_dir
-            loader = get_mid_dataloader(**vars(args))
-            for i, batch in enumerate(tqdm(loader)):
+            # generate with val_dl
+            val_dl = get_val_dataloader(**vars(args))
+            for i, batch in enumerate(tqdm(val_dl)):
+                # val step loop
                 prmat2c, pnotree, chord, prmat = batch
 
                 with torch.no_grad():
