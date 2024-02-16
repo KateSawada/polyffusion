@@ -653,7 +653,7 @@ def _accumulate_loss_dic(writer_names, loss_dic, loss_items):
 
 def get_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--task", type=str, default="train", help="train, test or encode")
+    parser.add_argument("--task", type=str, choices=["train", "test", "encode"], help="train, test or encode", required=True)
     parser.add_argument("--debug", default=False, action="store_true")
     parser.add_argument("--output_dir", type=str, default="result/polydis_vae")
     parser.add_argument("--batch_size", type=int, default=16)
