@@ -48,6 +48,7 @@ from polyffusion.dirs import (
     POP909_DATA_DIR,
     TRAIN_SPLIT_DIR,
 )
+from polyffusion.polydis.model import get_zs_from_dists
 from polyffusion.utils import (
     read_dict,
     pr_mat_pitch_shift,
@@ -658,7 +659,7 @@ def _accumulate_loss_dic(writer_names, loss_dic, loss_items):
 
 def get_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--task", type=str, choices=["train", "test", "encode"], help="train, test or encode", required=True)
+    parser.add_argument("--task", type=str, choices=["train", "test", "encode", "decode"], help="train, test, encode or decode", required=True)
     parser.add_argument("--debug", default=False, action="store_true")
     parser.add_argument("--output_dir", type=str, default="result/polydis_vae")
     parser.add_argument("--batch_size", type=int, default=16)
@@ -706,10 +707,10 @@ def get_args():
         required=False,
     )
     parser.add_argument(
-        "--latent_npy_dir",
+        "--latent_npz_dir",
         type=str,
         default=None,
-        help="latent npy directory",
+        help="latent npz directory",
         required=False
     )
 
@@ -921,12 +922,6 @@ if __name__ == "__main__":
 
                 est_x, _, _ = model.decoder.output_to_numpy(pitch_outs, dur_outs)
                 estx_to_midi_file(est_x, os.path.join(output_dir, f"est_{i}.mid"))
-        elif (args.latent_npy_dir is not None):
-            # decode from latent npy files
-            npy_files = glob.glob(os.path.join(args.latent_npy_dir, "*.npy"))
-            npys = []
-            for npy_file in npy_files:
-                npys.append(np.load(npy_file))
 
         else:
             # generate with val_dl
@@ -997,3 +992,39 @@ if __name__ == "__main__":
                     dist_chd_scale=dist_chd_scales,
                     dist_rhy_scale=dist_rhy_scales,
                 )
+    elif args.task == "decode":
+        class DecodeDataset(Dataset):
+            def __init__(self, z_chd, z_rhy) -> None:
+                self.z_chd = z_chd
+                self.z_rhy = z_rhy
+            def __getitem__(self, index) -> Any:
+                return self.z_chd[index], self.z_rhy[index]
+            def __len__(self) -> int:
+                return len(self.z_chd)
+        if (args.latent_npz_dir is not None):
+            # decode from latent npy files
+            npz_files = glob.glob(os.path.join(args.latent_npz_dir, "*.npz"))
+            print(f"npz files: {npz_files}")
+            model = init_model(device, chd_size, txt_size, num_channel, n_bars)
+            state_dict = torch.load(ckpt)
+            model.load_state_dict(state_dict["model"])
+            model.eval()
+            for npz_file in tqdm(npz_files):
+                npz = np.load(npz_file)
+                z_chd = Normal(torch.from_numpy(npz["dist_chd_mean"]), torch.from_numpy(npz["dist_chd_scale"]))
+                z_rhy = Normal(torch.from_numpy(npz["dist_rhy_mean"]), torch.from_numpy(npz["dist_rhy_scale"]))
+                z_chd, z_rhy = get_zs_from_dists([z_chd, z_rhy], False)
+                z_chd = z_chd.to(device).squeeze(1)
+                z_rhy = z_rhy.to(device).squeeze(1)
+                dl = DataLoader(DecodeDataset(z_chd, z_rhy), 2, False)
+                result = []
+                for i, batch in enumerate(tqdm(dl)):
+                    with torch.no_grad():
+                        est_x = model.inference_decode(*batch)
+                    result.append(est_x)
+                    # print(est_x.shape)  (1, 16, 19, 6)
+                result = np.concatenate(result, axis=0)
+                estx_to_midi_file(result, os.path.join(output_dir, f"est_{os.path.basename(npz_file)}.mid"))
+
+        else:
+            raise ValueError("latent npz directory is not specified.")
