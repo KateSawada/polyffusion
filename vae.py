@@ -14,6 +14,9 @@ usage
 `$ python vae.py --task encode --output_dir result/generate --ckpt path/to/ckpt.pt --mid_dir data/train_split_pnt/valid_mid_small`
 then, got npz files in result/generate as filename.mid.npz
 They have keys `dist_chd_mean`, `dist_rhy_mean`, `dist_chd_scale` and `dist_rhy_scale`.
+
+# decode from transformer output npy
+`$ python vae.py --task decode --latent_npy_dir result/1bar_transformer_tuning/02-19_233847/generated/1 --ckpt result/vae_0.1_0.0001/02-01_174905/chkpts/best_weights.pt --output_dir result/decoded`
 """
 from __future__ import annotations
 import os
@@ -713,6 +716,13 @@ def get_args():
         help="latent npz directory",
         required=False
     )
+    parser.add_argument(
+        "--latent_npy_dir",
+        type=str,
+        default=None,
+        help="latent npy directory",
+        required=False
+    )
 
     args = parser.parse_args()
     return args
@@ -1025,6 +1035,23 @@ if __name__ == "__main__":
                     # print(est_x.shape)  (1, 16, 19, 6)
                 result = np.concatenate(result, axis=0)
                 estx_to_midi_file(result, os.path.join(output_dir, f"est_{os.path.basename(npz_file)}.mid"))
+        elif (args.latent_npy_dir is not None):
+            # decode from latent npy files
+            npy_files = glob.glob(os.path.join(args.latent_npy_dir, "*.npy"))
+            print(f"npy files: {npy_files}")
+            model = init_model(device, chd_size, txt_size, num_channel, n_bars)
+            state_dict = torch.load(ckpt)
+            model.load_state_dict(state_dict["model"])
+            model.eval()
+            for npy_file in tqdm(npy_files):
+                npy = np.load(npy_file)
+                z = torch.from_numpy(npy).to(device)
+                for i in range(len(z)):
+                    z_chd = z[i, :, :chd_size]
+                    z_rhy = z[i, :, chd_size:chd_size+txt_size]
+                    print(f"{z_chd.shape=}, {z_rhy.shape=}")
+                    est_x = model.inference_decode(z_chd, z_rhy)
+                    estx_to_midi_file(est_x, os.path.join(output_dir, f"est_{os.path.basename(npy_file)}_{i}.mid"))
 
         else:
             raise ValueError("latent npz directory is not specified.")
