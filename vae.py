@@ -1002,7 +1002,7 @@ if __name__ == "__main__":
             def __len__(self) -> int:
                 return len(self.z_chd)
         if (args.latent_npz_dir is not None):
-            # decode from latent npy files
+            # decode from latent npz files
             npz_files = glob.glob(os.path.join(args.latent_npz_dir, "*.npz"))
             print(f"npz files: {npz_files}")
             model = init_model(device, chd_size, txt_size, num_channel, n_bars)
