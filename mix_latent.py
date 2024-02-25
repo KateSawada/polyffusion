@@ -29,18 +29,18 @@ def get_args():
 
 if __name__ == "__main__":
     args = get_args()
-    latent1 = np.load(args.latent1)
-    latent2 = np.load(args.latent2)
+    latents = [np.load(args.latent1), np.load(args.latent2)]
+    min_len = min([len(l["dist_chd_mean"]) for l in latents])
+
+    # cut longer one
+    latents = [{arr: data[arr][:min_len] for arr in data.files} for data in latents]
     mixed_latent = []
     if args.mode == 'avg':
-        mixed_latent.append(latent1["dist_chd_mean"] * args.weight + latent2["dist_chd_mean"] * (1 - args.weight))
-        mixed_latent.append(latent1["dist_rhy_mean"] * args.weight + latent2["dist_rhy_mean"] * (1 - args.weight))
+        for i in range(len(latents)):
+            mixed_latent.append(latents[i]["dist_chd_mean"] * args.weight + latents[i]["dist_rhy_mean"] * (1 - args.weight))
     elif args.mode == 'mix':
-        mixed_latent.append(latent1["dist_chd_mean"])
-        mixed_latent.append(latent2["dist_rhy_mean"])
-    # cut longer one
-    min_len = min([len(l) for l in mixed_latent])
-    mixed_latent = [l[:min_len] for l in mixed_latent]
+        mixed_latent.append(latents[0]["dist_chd_mean"])
+        mixed_latent.append(latents[1]["dist_rhy_mean"])
     mixed_latent = np.concatenate(mixed_latent, axis=2)
     mixed_latent = mixed_latent.transpose(1, 0, 2)  # (1, length, latent_dim)
 
