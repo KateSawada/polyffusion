@@ -19,6 +19,8 @@ import importlib
 from omegaconf import OmegaConf
 import optuna
 
+SPLIT_PICKLE = "pop909.pickle"
+
 import math
 class PositionalEncoding(nn.Module):
 
@@ -278,7 +280,7 @@ class WholeSongDataset(Dataset):
     @classmethod
     def load_train_and_valid_sets(cls, **kwargs)\
             -> tuple[WholeSongDataset, WholeSongDataset]:
-        split = read_dict(os.path.join(TRAIN_SPLIT_DIR, "pop909.pickle"))
+        split = read_dict(os.path.join(TRAIN_SPLIT_DIR, SPLIT_PICKLE))
         # exclude songs not being 4 beat
         train_list = cls.remove_not_4beat_songs(split[0])
         val_list = cls.remove_not_4beat_songs(split[1])
@@ -329,7 +331,7 @@ class NBarsDataSample(Dataset):
         if debug:
             split = read_dict(os.path.join(TRAIN_SPLIT_DIR, "pop909_debug32.pickle"))
         else:
-            split = read_dict(os.path.join(TRAIN_SPLIT_DIR, "pop909.pickle"))
+            split = read_dict(os.path.join(TRAIN_SPLIT_DIR, SPLIT_PICKLE))
         split = list(split)
         split[0] = list(map(lambda x: add_filename_suffix(x, "_flatten"), split[0]))
         split[1] = list(map(lambda x: add_filename_suffix(x, "_flatten"), split[1]))
@@ -346,7 +348,7 @@ class NBarsDataSample(Dataset):
         if debug:
             split = read_dict(os.path.join(TRAIN_SPLIT_DIR, "pop909_debug32.pickle"))
         else:
-            split = read_dict(os.path.join(TRAIN_SPLIT_DIR, "pop909.pickle"))
+            split = read_dict(os.path.join(TRAIN_SPLIT_DIR, SPLIT_PICKLE))
         split = list(split)
         split[1] = list(map(lambda x: add_filename_suffix(x, "_flatten"), split[1]))
         split[1] = list(map(lambda x: replace_extension(x, ".mid"), split[1]))
