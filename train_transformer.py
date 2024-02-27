@@ -19,7 +19,7 @@ import importlib
 from omegaconf import OmegaConf
 import optuna
 
-SPLIT_PICKLE = "pop909.pickle"
+SPLIT_PICKLE = "pop909_train_valid_test.pickle"
 
 import math
 class PositionalEncoding(nn.Module):
@@ -763,7 +763,10 @@ def import_class(module_path, class_name):
     module = importlib.import_module(module_path)
     return getattr(module, class_name)
 
+train_dl, val_dl = None, None
+
 def objective(trial):
+    global train_dl, val_dl
     args = get_args()
     output_dir = os.path.join(args.output_dir, datetime.now().strftime('%m-%d_%H%M%S'))
     log_dir = os.path.join(output_dir, "logs")
@@ -857,7 +860,8 @@ def objective(trial):
         vae.rhy_encoder = vae.rhy_encoder.to("cpu")
 
         collate_fn = CustomVAECollator(vae, is_sample)
-        train_dl, val_dl = get_train_val_dataloaders_n_bars(batch_size=batch_size, num_workers=num_workers, pin_memory=pin_memory, collate_fn=collate_fn, n_bars=vae_yaml["n_bars"], debug=debug)
+        if train_dl is None or val_dl is None:
+            train_dl, val_dl = get_train_val_dataloaders_n_bars(batch_size=batch_size, num_workers=num_workers, pin_memory=pin_memory, collate_fn=collate_fn, n_bars=vae_yaml["n_bars"], debug=debug)
         d_model = vae_yaml["chd_size"] + vae_yaml["txt_size"]
 
 
@@ -990,7 +994,7 @@ def objective(trial):
     return losses["loss"]
 
 if __name__ == "__main__":
-    TRIAL_SIZE = 50
+    TRIAL_SIZE = 2
     study = optuna.create_study()
     study.optimize(objective, n_trials=TRIAL_SIZE)
     print(study.best_params)
