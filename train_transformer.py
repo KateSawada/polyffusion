@@ -994,15 +994,21 @@ def objective(trial):
     return losses["loss"]
 
 if __name__ == "__main__":
+    import uuid
+    import pickle
+    id = uuid.uuid4()
+    print(f"start study id: {id}\n")
     TRIAL_SIZE = 50
     study = optuna.create_study()
     def print_best_params(study, trial):
         # その時点での最良のパラメータを出力
         print(f"\n\nFinished trial {trial.number}: Best params {study.best_params} with value: {study.best_value}\n\n")
+        with open(f"study_{id}.pkl", "wb") as f:
+            pickle.dump(study, f)
+
 
     study.optimize(objective, n_trials=TRIAL_SIZE, callbacks=[print_best_params])
     print(study.best_params)
-    import pickle
     import datetime
     with open(f"study_{datetime.datetime.now().strftime('%m-%d_%H%M%S')}.pkl", "wb") as f:
         pickle.dump(study, f)
