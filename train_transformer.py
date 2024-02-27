@@ -994,7 +994,7 @@ def objective(trial):
     return losses["loss"]
 
 if __name__ == "__main__":
-    TRIAL_SIZE = 2
+    TRIAL_SIZE = 50
     study = optuna.create_study()
     study.optimize(objective, n_trials=TRIAL_SIZE)
     print(study.best_params)
