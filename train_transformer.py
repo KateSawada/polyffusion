@@ -996,7 +996,11 @@ def objective(trial):
 if __name__ == "__main__":
     TRIAL_SIZE = 50
     study = optuna.create_study()
-    study.optimize(objective, n_trials=TRIAL_SIZE)
+    def print_best_params(study, trial):
+        # その時点での最良のパラメータを出力
+        print(f"\n\nFinished trial {trial.number}: Best params {study.best_params} with value: {study.best_value}\n\n")
+
+    study.optimize(objective, n_trials=TRIAL_SIZE, callbacks=[print_best_params])
     print(study.best_params)
     import pickle
     import datetime
