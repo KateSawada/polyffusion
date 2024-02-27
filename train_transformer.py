@@ -723,7 +723,7 @@ def get_args():
     args = parser.parse_args()
     return args
 
-def save_to_checkpoint(checkpoint_dir, model, step, epoch, optimizer, is_best=False):
+def save_to_checkpoint(checkpoint_dir, model, step, epoch, optimizer, best_val_loss, is_best=False):
     if not os.path.exists(checkpoint_dir):
         os.makedirs(checkpoint_dir)
     checkpoint = {
@@ -970,9 +970,9 @@ if __name__ == "__main__":
 
         if best_val_loss >= losses["loss"]:
             best_val_loss = losses["loss"]
-            save_to_checkpoint(checkpoint_dir, model, step, epoch, optimizer, is_best=True)
+            save_to_checkpoint(checkpoint_dir, model, step, epoch, optimizer, best_val_loss, is_best=True)
         else:
-            save_to_checkpoint(checkpoint_dir, model, step, epoch, optimizer, is_best=False)
+            save_to_checkpoint(checkpoint_dir, model, step, epoch, optimizer, best_val_loss, is_best=False)
 
         summary_losses = losses
         writer.add_scalars("valid", summary_losses, step)
