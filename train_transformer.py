@@ -17,6 +17,7 @@ import numpy as np
 import yaml
 import importlib
 from omegaconf import OmegaConf
+import optuna
 
 import math
 class PositionalEncoding(nn.Module):
@@ -760,7 +761,7 @@ def import_class(module_path, class_name):
     module = importlib.import_module(module_path)
     return getattr(module, class_name)
 
-if __name__ == "__main__":
+def objective(trial):
     args = get_args()
     output_dir = os.path.join(args.output_dir, datetime.now().strftime('%m-%d_%H%M%S'))
     log_dir = os.path.join(output_dir, "logs")
@@ -772,13 +773,13 @@ if __name__ == "__main__":
     # パラメータの設定
     batch_size = args.batch_size
     max_epoch = args.max_epoch
-    learning_rate = args.learning_rate
+    # learning_rate = args.learning_rate
     max_grad_norm = args.max_grad_norm
     num_workers = args.num_workers
     pin_memory = args.pin_memory
-    heads_num = args.heads_num
-    n_layers = args.n_layers
-    weight_stop_estimation = args.weight_stop_estimation
+    # heads_num = args.heads_num
+    # n_layers = args.n_layers
+    # weight_stop_estimation = args.weight_stop_estimation
     use_default_vae = args.use_default_vae
     use_chd_enc = args.use_chd_enc
     use_txt_enc = args.use_txt_enc
@@ -788,6 +789,11 @@ if __name__ == "__main__":
     is_sample = args.is_sample
 
     debug = args.debug
+
+    learning_rate = trial.suggest_float("learning_rate", 1e-6, 1e-3, log=True)
+    heads_num = trial.suggest_categorical("heads_num", [1, 2, 4, 8, 16])
+    n_layers = trial.suggest_int("n_layers", 1, 16)
+    weight_stop_estimation = trial.suggest_float("weight_stop_estimation", 1.0, 50.0)
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     with open(f"{output_dir}/params.json", "w") as params_file:
@@ -979,3 +985,14 @@ if __name__ == "__main__":
         writer.flush()
 
         model.train()
+    return losses["loss"]
+
+if __name__ == "__main__":
+    TRIAL_SIZE = 50
+    study = optuna.create_study()
+    study.optimize(objective, n_trials=TRIAL_SIZE)
+    print(study.best_params)
+    import pickle
+    import datetime
+    with open(f"study_{datetime.datetime.now().strftime('%m-%d_%H%M%S')}.pkl", "wb") as f:
+        pickle.dump(study, f)
