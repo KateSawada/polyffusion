@@ -912,7 +912,7 @@ def objective(trial):
             stop_loss = stop_loss_function(stop_probability, stop_groundtruth)
             sequence_loss = sequence_loss_function(estimated_sequence, cond)
 
-            loss = weight_stop_estimation * stop_loss + sequence_loss
+            loss = weight_stop_estimation / (weight_stop_estimation + 1) * stop_loss + 1 / (weight_stop_estimation + 1) * sequence_loss
 
             # backward
             optimizer.zero_grad()
@@ -959,7 +959,7 @@ def objective(trial):
             stop_loss = stop_loss_function(stop_probability, stop_groundtruth)
             sequence_loss = sequence_loss_function(estimated_sequence, cond)
 
-            loss = weight_stop_estimation * stop_loss + sequence_loss
+            loss = weight_stop_estimation / (weight_stop_estimation + 1) * stop_loss + 1 / (weight_stop_estimation + 1) * sequence_loss
 
             grad_norm = nn.utils.clip_grad.clip_grad_norm_(
                 model.parameters(), max_grad_norm
