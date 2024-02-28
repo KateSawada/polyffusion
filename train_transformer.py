@@ -991,7 +991,7 @@ def objective(trial):
         writer.flush()
 
         model.train()
-    return losses["loss"]
+    return losses["sequence_loss"]
 
 if __name__ == "__main__":
     import uuid
