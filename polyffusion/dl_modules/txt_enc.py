@@ -3,8 +3,8 @@ from torch.distributions import Normal
 
 
 class TextureEncoder(nn.Module):
-    def __init__(self, emb_size, hidden_dim, z_dim, num_channel=10):
-        """input must be piano_mat: (B, 32, 128)"""
+    def __init__(self, emb_size, hidden_dim, z_dim, num_channel=10, timesteps=32):
+        """input must be piano_mat: (B, timesteps, 128)"""
         super(TextureEncoder, self).__init__()
         self.cnn = nn.Sequential(
             nn.Conv2d(1, num_channel, kernel_size=(4, 12), stride=(4, 1), padding=0),
@@ -19,13 +19,14 @@ class TextureEncoder(nn.Module):
         self.emb_size = emb_size
         self.hidden_dim = hidden_dim
         self.z_dim = z_dim
+        self.timesteps = timesteps
 
     def forward(self, pr):
-        # pr: (bs, 32, 128)
+        # pr: (bs, timesteps, 128)
         bs = pr.size(0)
         pr = pr.unsqueeze(1)
-        pr = self.cnn(pr).view(bs, 8, -1)
-        pr = self.fc2(self.fc1(pr))  # (bs, 8, emb_size)
+        pr = self.cnn(pr).view(bs, self.timesteps // 4, -1)
+        pr = self.fc2(self.fc1(pr))  # (bs, self.timesteps // 4, emb_size)
         pr = self.gru(pr)[-1]
         pr = pr.transpose_(0, 1).contiguous()
         pr = pr.view(pr.size(0), -1)

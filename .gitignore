@@ -1,5 +1,6 @@
 # local
-/data/
+/data/*
+!/data/train_split_pnt
 /pretrained/
 /result*/
 /exp/

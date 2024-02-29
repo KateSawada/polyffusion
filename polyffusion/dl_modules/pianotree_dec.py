@@ -115,9 +115,9 @@ class PianoTreeDecoder(nn.Module):
 
     def index_tensor_to_multihot_tensor(self, ind_x):
         """Transfer piano_grid to multi-hot piano_grid."""
-        # ind_x: (B, 32, max_simu_note, 1 + dur_width)
+        # ind_x: (B, num_step, max_simu_note, 1 + dur_width)
         with torch.no_grad():
-            dur_part = ind_x[:, :, :, 1:].float()
+            dur_part = ind_x[:, :, :, 1:].to(self.device).float()
             out = torch.zeros(
                 [
                     ind_x.size(0) * self.num_step * self.max_simu_note,
@@ -127,7 +127,7 @@ class PianoTreeDecoder(nn.Module):
             ).to(self.device)
 
             out[range(0, out.size(0)), ind_x[:, :, :, 0].view(-1)] = 1.0
-            out = out.view(-1, 32, self.max_simu_note, self.pitch_range + 1)
+            out = out.view(-1, self.num_step, self.max_simu_note, self.pitch_range + 1)
             out = torch.cat([out[:, :, :, 0 : self.pitch_range], dur_part], dim=-1)
         return out
 
