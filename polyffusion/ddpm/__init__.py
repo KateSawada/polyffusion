@@ -41,6 +41,7 @@ class DenoiseDiffusion(nn.Module):
         """
 
         # [gather](utils.html) $\alpha_t$ and compute $\sqrt{\bar\alpha_t} x_0$
+        self.alpha_bar = self.alpha_bar.to(x0.device)
         mean = gather(self.alpha_bar, t) ** 0.5 * x0
         # $(1-\bar\alpha_t) \mathbf{I}$
         var = 1 - gather(self.alpha_bar, t)
