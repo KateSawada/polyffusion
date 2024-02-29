@@ -800,6 +800,11 @@ def objective(trial):
     n_layers = trial.suggest_int("n_layers", 1, 16)
     weight_stop_estimation = trial.suggest_float("weight_stop_estimation", 1.0, 50.0)
 
+    args.learning_rate = learning_rate
+    args.heads_num = heads_num
+    args.n_layers = n_layers
+    args.weight_stop_estimation = weight_stop_estimation
+
     device = "cuda" if torch.cuda.is_available() else "cpu"
     with open(f"{output_dir}/params.json", "w") as params_file:
         json.dump(vars(args), params_file)
