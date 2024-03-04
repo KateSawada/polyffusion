@@ -6,6 +6,7 @@ from train.train_autoencoder import Autoencoder_TrainConfig
 from train.train_chd_8bar import Chord8bar_TrainConfig
 from train.train_ddpm import DDPM_TrainConfig
 from train.train_ldm import LDM_TrainConfig
+from train.train_latent_diffusion import LatentDiffusion_TrainConfig
 
 if __name__ == "__main__":
     parser = ArgumentParser(
@@ -48,6 +49,10 @@ if __name__ == "__main__":
         )
     elif args.model == "chd_8bar":
         config = Chord8bar_TrainConfig(params, args.output_dir, data_dir=args.data_dir)
+    elif args.model == "latent_diffusion":
+        config = LatentDiffusion_TrainConfig(
+            params, args.output_dir, data_dir=args.data_dir
+        )
     else:
         raise NotImplementedError
     config.train()

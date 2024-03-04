@@ -1,0 +1,26 @@
+model_name: latent_diffusion_transformer
+batch_size: 16
+max_epoch: 100
+learning_rate: 2.0e-05
+max_grad_norm: 10
+fp16: false
+num_workers: 4
+pin_memory: true
+beta: 0.1
+weights:
+- 1
+- 0.5
+n_steps: 1000  # diffusion step
+input_dim: 512  # dim of latent representation
+hidden_dim: 2048  # Hidden dim of Attention FeedForwardNetwork
+num_layers: 6  # number of transformer encoder layers
+nhead: 8  # MultiHead Attention head
+max_len: 256  # Max length of latent vector sequence
+vae:
+  chpt: result/vae_0.1_0.0001/02-01_174905/chkpts/best_weights.pt
+  chd_size: 256
+  txt_size: 256
+  num_channel: 10
+  n_bars: 1
+  is_sample: false
+debug: false
