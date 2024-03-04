@@ -142,7 +142,6 @@ class SequenceDenoiseDiffusion(nn.Module):
         """
         #### Get $q(x_t|x_0)$ distribution
         """
-
         # [gather](utils.html) $\alpha_t$ and compute $\sqrt{\bar\alpha_t} x_0$
         self.alpha_bar = self.alpha_bar.to(x0.device)
         mean = gather(self.alpha_bar, t) ** 0.5 * x0
@@ -167,13 +166,16 @@ class SequenceDenoiseDiffusion(nn.Module):
         # Sample from $q(x_t|x_0)$
         return mean + (var**0.5) * eps
 
-    def p_sample(self, xt: torch.Tensor, t: torch.Tensor):
+    def p_sample(self, xt: torch.Tensor, mask: torch.Tensor, t: torch.Tensor):
         """
         #### Sample from $\textcolor{lightgreen}{p_\theta}(x_{t-1}|x_t)$
         """
+        self.alpha_bar = self.alpha_bar.to(xt.device)
+        self.alpha = self.alpha.to(xt.device)
+        self.sigma2 = self.sigma2.to(xt.device)
 
         # $\textcolor{lightgreen}{\epsilon_\theta}(x_t, t)$
-        eps_theta = self.eps_model(xt, t)
+        eps_theta = self.eps_model(xt, mask, t)
         # [gather](utils.html) $\bar\alpha_t$
         alpha_bar = gather(self.alpha_bar, t)
         # $\alpha_t$
