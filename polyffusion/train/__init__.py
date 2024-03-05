@@ -114,3 +114,4 @@ class TrainConfig:
             self.val_dl,
             ckpt_path="last" if self.resume else None,
         )
+        return trainer.callback_metrics["val/loss"].item()

@@ -1,6 +1,6 @@
 model_name: latent_diffusion_transformer
 batch_size: 16
-max_epoch: 100
+max_epoch: 200
 learning_rate: 2.0e-05
 max_grad_norm: 10
 fp16: false
