@@ -4,6 +4,7 @@ from omegaconf import OmegaConf
 import os
 import optuna
 import pickle
+import datetime
 
 from train.train_autoencoder import Autoencoder_TrainConfig
 from train.train_chd_8bar import Chord8bar_TrainConfig
@@ -27,6 +28,7 @@ if __name__ == "__main__":
         "--pop909_use_track", help="which tracks to use for pop909 training"
     )
     parser.add_argument("--model", help="which model to train (autoencoder, ldm, ddpm)")
+    parser.add_argument("--optuna_db", type=str, default=None, help="optuna db file path. e.g. sqlite:///optuna.db")
     args = parser.parse_args()
 
     use_track = [0, 1, 2]
@@ -58,8 +60,12 @@ if __name__ == "__main__":
             print(f"\n\nFinished trial {trial.number}: Best params {study.best_params} with value: {study.best_value}\n\n")
             with open(os.path.join(args.output_dir, "study.pkl"), "wb") as f:
                 pickle.dump(study, f)
-        study = optuna.create_study()
-        TRIAL_SIZE = 100
+        study = optuna.create_study(
+            study_name="latent_diffusion_study",
+            storage=args.optuna_db,
+            load_if_exists=True,
+        )
+        TRIAL_SIZE = 50
 
         def objective(trial):
             params.learning_rate = trial.suggest_float("learning_rate", 1e-6, 1e-3, log=True)
