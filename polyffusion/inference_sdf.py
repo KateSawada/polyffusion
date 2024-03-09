@@ -88,7 +88,8 @@ def choose_song_from_val_dl(data_type, use_track=[0, 1, 2]):
     with open(split_fpath, "rb") as f:
         split = pickle.load(f)
     print(split[1])
-    num = int(input("choose one from pop909:"))
+    # num = int(input("choose one from pop909:"))
+    num = random.choice(range(len(split[1])))
     song_fn = split[1][num]
     print(song_fn)
 
@@ -347,7 +348,7 @@ class Experiments:
             output_stamp = f"{self.model_label}_inp_{inpaint_type}[scale={uncond_scale}{',autoreg' if autoreg else ''}]_{datetime.now().strftime('%m-%d_%H%M%S')}"
             prmat2c = gen.cpu().numpy()
             mask = mask.cpu().numpy()
-            prmat2c_to_midi_file(prmat2c, f"exp/{output_stamp}.mid", inp_mask=mask)
+            prmat2c_to_midi_file(prmat2c, args.output_mid_filename, inp_mask=mask)
         return gen
 
     def show_q_imgs(self, prmat2c):
