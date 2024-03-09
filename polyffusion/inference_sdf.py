@@ -309,7 +309,7 @@ class Experiments:
         if not no_output:
             output_stamp = f"{self.model_label}_[scale={uncond_scale}{',autoreg' if autoreg else ''}]_{datetime.now().strftime('%m-%d_%H%M%S')}"
             prmat2c = gen.cpu().numpy()
-            prmat2c_to_midi_file(prmat2c, f"exp/{output_stamp}.mid")
+            prmat2c_to_midi_file(prmat2c, f"{args.output_mid_filename}")
             if polydis_recon:
                 aftertouch = PolydisAftertouch()
                 prmat = prmat2c_to_prmat(prmat2c)
@@ -435,6 +435,13 @@ if __name__ == "__main__":
         "--polydis_txt",
         action="store_true",
         help="use polydis to generate texture-like MIDI. For comparison."
+    )
+    parser.add_argument(
+        "--output_mid_filename",
+        help="output the generated midi file with a specific filename",
+        type=str,
+        default=None,
+        required=False,
     )
     args = parser.parse_args()
     model_label = Path(args.model_dir).parent.name
