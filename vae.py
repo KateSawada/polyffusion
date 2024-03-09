@@ -17,6 +17,9 @@ They have keys `dist_chd_mean`, `dist_rhy_mean`, `dist_chd_scale` and `dist_rhy_
 
 # decode from transformer output npy
 `$ python vae.py --task decode --latent_npy_dir result/1bar_transformer_tuning/02-19_233847/generated/1 --ckpt result/vae_0.1_0.0001/02-01_174905/chkpts/best_weights.pt --output_dir result/decoded`
+
+# mix chd and txt
+`python vae.py --task mix --output_dir result/generate --ckpt path/to/ckpt.pt --chd path/to/chd.mid --txt path/to/txt.mid`
 """
 from __future__ import annotations
 import os
@@ -32,6 +35,7 @@ import tempfile
 import shutil
 from pathlib import Path
 import glob
+import shutil
 
 import torch
 from torch.utils.data import Dataset, DataLoader
@@ -662,7 +666,7 @@ def _accumulate_loss_dic(writer_names, loss_dic, loss_items):
 
 def get_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--task", type=str, choices=["train", "test", "encode", "decode"], help="train, test, encode or decode", required=True)
+    parser.add_argument("--task", type=str, choices=["train", "test", "encode", "decode", "mix"], help="train, test, encode or decode", required=True)
     parser.add_argument("--debug", default=False, action="store_true")
     parser.add_argument("--output_dir", type=str, default="result/polydis_vae")
     parser.add_argument("--batch_size", type=int, default=16)
@@ -722,6 +726,20 @@ def get_args():
         default=None,
         help="latent npy directory",
         required=False
+    )
+    parser.add_argument(
+        "--chd",
+        type=str,
+        default=None,
+        help="chord file in mix task",
+        required=False,
+    )
+    parser.add_argument(
+        "--txt",
+        type=str,
+        default=None,
+        help="texture file in mix task",
+        required=False,
     )
 
     args = parser.parse_args()
@@ -1055,3 +1073,85 @@ if __name__ == "__main__":
 
         else:
             raise ValueError("latent npz directory is not specified.")
+
+    elif args.task=="mix":
+        output_dir = args.output_dir
+        # encode midi files in mid_dir
+        if (args.chd is None or args.txt is None):
+            raise ValueError("chord or texture file is not specified.")
+        model = init_model(device, chd_size, txt_size, num_channel, n_bars)
+        state_dict = torch.load(ckpt)
+        model.load_state_dict(state_dict["model"])
+        model.eval()
+        # fix batch size to 1
+        args.batch_size = 1
+
+        # encode files
+        with tempfile.TemporaryDirectory() as temp_dir:
+            os.makedirs(os.path.join(temp_dir, "chd"))
+            os.makedirs(os.path.join(temp_dir, "txt"))
+            shutil.copy(args.chd, os.path.join(temp_dir, "chd", "chd.mid"))
+            shutil.copy(args.txt, os.path.join(temp_dir, "txt", "txt.mid"))
+            for file in ["chd", "txt"]:
+                args.mid_dir = os.path.join(temp_dir, file)
+                print(args.mid_dir)
+                print(os.listdir(args.mid_dir))
+
+                loader = get_mid_dataloader(**vars(args))
+                dist_chd_means = []
+                dist_rhy_means = []
+                dist_chd_scales = []
+                dist_rhy_scales = []
+                for i, batch in enumerate(tqdm(loader)):
+                    prmat2c, pnotree, chord, prmat = batch
+                    with torch.no_grad():
+                        outputs = model.inference_encode(prmat.to(device), chord.to(device))
+                    dist_chd, dist_rhy = outputs
+                    dist_chd_mean = dist_chd.mean.cpu().numpy()
+                    dist_rhy_mean = dist_rhy.mean.cpu().numpy()
+                    dist_chd_scale = dist_chd.scale.cpu().numpy()
+                    dist_rhy_scale = dist_rhy.scale.cpu().numpy()
+                    dist_chd_means.append(dist_chd_mean)
+                    dist_rhy_means.append(dist_rhy_mean)
+                    dist_chd_scales.append(dist_chd_scale)
+                    dist_rhy_scales.append(dist_rhy_scale)
+                dist_chd_means = np.array(dist_chd_means)
+                dist_rhy_means = np.array(dist_rhy_means)
+                dist_chd_scales = np.array(dist_chd_scales)
+                dist_rhy_scales = np.array(dist_rhy_scales)
+                # save to npz containing mean and scale
+                np.savez(
+                    os.path.join(output_dir, f"{file}.npz"),
+                    dist_chd_mean=dist_chd_means,
+                    dist_rhy_mean=dist_rhy_means,
+                    dist_chd_scale=dist_chd_scales,
+                    dist_rhy_scale=dist_rhy_scales,
+                )
+        # concat latent files
+        chd_npz = np.load(os.path.join(output_dir, "chd.npz"))
+        txt_npz = np.load(os.path.join(output_dir, "txt.npz"))
+        z_chd = Normal(torch.from_numpy(chd_npz["dist_chd_mean"]), torch.from_numpy(chd_npz["dist_chd_scale"]))
+        z_txt = Normal(torch.from_numpy(txt_npz["dist_rhy_mean"]), torch.from_numpy(txt_npz["dist_rhy_scale"]))
+        z_chd, z_rhy = get_zs_from_dists([z_chd, z_txt], False)
+        # print(z_chd.shape)  # (8, 1, 256)
+
+        class DecodeDataset(Dataset):
+            def __init__(self, z_chd, z_rhy) -> None:
+                self.z_chd = z_chd
+                self.z_rhy = z_rhy
+            def __getitem__(self, index) -> Any:
+                return self.z_chd[index], self.z_rhy[index]
+            def __len__(self) -> int:
+                return len(self.z_chd)
+
+        z_chd = z_chd.to(device).squeeze(1)
+        z_rhy = z_rhy.to(device).squeeze(1)
+        dl = DataLoader(DecodeDataset(z_chd, z_rhy), 2, False)
+        result = []
+        for i, batch in enumerate(tqdm(dl)):
+            with torch.no_grad():
+                est_x = model.inference_decode(*batch)
+            result.append(est_x)
+            # print(est_x.shape)  (1, 16, 19, 6)
+        result = np.concatenate(result, axis=0)
+        estx_to_midi_file(result, os.path.join(output_dir, f"est.mid"))
