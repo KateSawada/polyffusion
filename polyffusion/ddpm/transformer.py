@@ -5,6 +5,26 @@ import math
 
 from ddpm.unet import TimeEmbedding
 
+def get_sample_lengths_from_src_key_padding_mask(src_key_padding_mask):
+    """
+    PyTorchのsrc_key_padding_maskからバッチ内のサンプルの長さのリストを取得する関数
+
+    Args:
+        src_key_padding_mask (torch.Tensor): shape=(batch_size, src_len) PAD = 1, NOT PAD = 0
+
+    Returns:
+        sample_lengths (list): list of each sample length
+    """
+    batch_size, src_len = src_key_padding_mask.size()
+    sample_lengths = []
+
+    for batch_idx in range(batch_size):
+        sample_mask = src_key_padding_mask[batch_idx]
+        sample_length = (sample_mask == 0).sum().item()
+        sample_lengths.append(sample_length)
+
+    return sample_lengths
+
 class PositionalEncoding(nn.Module):
     def __init__(self, d_model, max_len=5000, n_dim_divide=1):
         super(PositionalEncoding, self).__init__()
