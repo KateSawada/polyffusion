@@ -44,13 +44,24 @@ class PositionalEncoding(nn.Module):
         # 勾配計算を無効にして、値が更新されないようにする
         self.register_buffer('pe', pe)
 
-    def forward(self, x):
+    def reverse_pe_add(self, x, mask):
+        """
+        Args:
+            x: Tensor, shape [batch_size, seq_len, embedding_dim]
+            mask: Tensor, shape [batch_size, seq_len]
+        """
+        lengths = get_sample_lengths_from_src_key_padding_mask(mask)
+        for i, length in enumerate(lengths):
+            x[i, :length, :] = x[i, :length, :] + self.pe[:, :length, :].flip(dims=[1, 2]).repeat(1, 1, self.n_dim_divide)
+        return x
+
+    def forward(self, x, mask):
         """
         Args:
             x: Tensor, shape [batch_size, seq_len, embedding_dim]
         """
         # Positional Encodingを入力xに加算
-        x = x + self.pe[:, :x.size(1), :].flip(dims=[1]).repeat(1, 1, self.n_dim_divide) + self.pe[:, :x.size(1), :].repeat(1, 1, self.n_dim_divide)
+        x = self.reverse_pe_add(x, mask) + self.pe[:, :x.size(1), :].repeat(1, 1, self.n_dim_divide)
         return x
 
 class TransformerEncoderModel(nn.Module):
@@ -75,7 +86,7 @@ class TransformerEncoderModel(nn.Module):
             torch.Tensor: output tensor, shape=(batch, 1, sequence_length, dim)
         """
         x = x.squeeze(1)
-        src = self.positional_encoding(x)
+        src = self.positional_encoding(x, mask)
         time_embedding = self.time_embedding(t).unsqueeze(1)
         src = src + time_embedding
         output = self.transformer_encoder(src, src_key_padding_mask=~mask.bool())
