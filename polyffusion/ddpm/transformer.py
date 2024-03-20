@@ -84,3 +84,16 @@ class TransformerEncoderModel(nn.Module):
         output = torch.where(mask.unsqueeze(-1).bool(), output, x)
 
         return output.unsqueeze(1)
+
+
+if __name__ == "__main__":
+    model = TransformerEncoderModel(512, 2048, 6, 8, 128)
+    x = torch.randn(4, 1, 128, 512)
+    mask = torch.zeros(4, 128)
+    mask[0, 10:] = 1
+    mask[0, 30:] = 1
+    mask[0, 80:] = 1
+
+    output = model(x, mask, torch.tensor([0, 1, 2, 3]))
+
+    print(output.size())
