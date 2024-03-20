@@ -6,7 +6,7 @@ import math
 from ddpm.unet import TimeEmbedding
 
 class PositionalEncoding(nn.Module):
-    def __init__(self, d_model, max_len=5000, n_dim_divide=2):
+    def __init__(self, d_model, max_len=5000, n_dim_divide=1):
         super(PositionalEncoding, self).__init__()
         # Positional Encodingを保持するテーブルを作成
         if d_model % n_dim_divide != 0:
@@ -48,7 +48,7 @@ class TransformerEncoderModel(nn.Module):
 
         Args:
             x (torch.Tensor): shape=(batch, 1, sequence_length, dim)
-            mask (torch.Tensor): shape=(batch, sequence_length)
+            mask (torch.Tensor): shape=(batch, sequence_length), mask for PAD token or value
             t (torch.Tensor): shape=(batch)
 
         Returns:
