@@ -190,9 +190,9 @@ class Configs:
                 if show_img:
                     show_image(x0, os.path.join(output_dir, "x0.png"))
                 if n_samples > 1:
-                    prmat = x0.squeeze().cpu().numpy()
+                    prmat = x0.detach().squeeze().cpu().numpy()
                 else:
-                    prmat = x0.cpu().numpy()
+                    prmat = x0.detach().cpu().numpy()
                 output_stamp = f"ddpm_prmat2c_[uncond]_{datetime.now().strftime('%y-%m-%d_%H%M%S')}"
                 np.save(os.path.join(output_dir, f"{output_stamp}.npy"), prmat)
                 return x0
@@ -204,9 +204,9 @@ class Configs:
                 if show_img:
                     show_image(x0, os.path.join(output_dir, "x0.png"))
                 if n_samples > 1:
-                    prmat = x0.squeeze().cpu().numpy()
+                    prmat = x0.detach().squeeze().cpu().numpy()
                 else:
-                    prmat = x0.cpu().numpy()
+                    prmat = x0.detach().cpu().numpy()
                 output_stamp = f"ddpm_prmat2c_init_[{song_fn}]_{datetime.now().strftime('%y-%m-%d_%H%M%S')}"
                 prmat2c_to_midi_file(
                     prmat, os.path.join(output_dir, f"{output_stamp}.mid")
