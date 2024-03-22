@@ -17,6 +17,7 @@ from ddpm.utils import gather
 from dirs import *
 from models.model_latent_diffusion_transformer import Sequence_DDPM
 from utils import prmat2c_to_midi_file, show_image
+from polydis import DisentangleVAE, load_model
 
 
 class Configs:
@@ -24,6 +25,8 @@ class Configs:
     eps_model: TransformerEncoderModel
     # [DDPM algorithm](index.html)
     diffusion: SequenceDenoiseDiffusion
+
+    guide_model: DisentangleVAE
 
     # Adam optimizer
     optimizer: torch.optim.Adam
@@ -45,6 +48,8 @@ class Configs:
             n_steps=params.n_steps,
             # device=self.device,
         ).to(self.device)
+
+        self.guide_model = load_model(params.vae.chd_size, params.vae.txt_size, params.vae.num_channel, params.vae.n_bars, params.vae.chpt).to(self.device)
 
         self.model = Sequence_DDPM.load_trained(
             self.diffusion, os.path.join(model_dir, "chkpts", chkpt_name), params
@@ -75,6 +80,19 @@ class Configs:
         # $\sigma^2 = \beta$
         self.sigma2 = self.beta
 
+        self.params = params
+
+    def classifier_guidance_step(self, xt: torch.Tensor):
+        shape = xt.shape
+        xt_input = xt.reshape(-1, shape[-1]).clone().detach()
+        # xt_input = torch.ones_like(xt_input)  # 試しに新しいテンソルを作って流してみたが，変わらず
+        xt_input.requires_grad_()
+        pitch, dur = self.guide_model.decoder(xt_input, True, None, None, 0.0, 0.0)
+        (pitch.mean() + dur.mean()).backward()
+        xt_grad = xt_input.grad
+        xt = xt - xt_grad.reshape(*shape)
+        return xt
+
     def _sample_x0(self, xt: torch.Tensor, n_steps: int, show_img=False):
         """
         #### Sample an image using $\textcolor{lightgreen}{p_\theta}(x_{t-1}|x_t)$
@@ -93,13 +111,14 @@ class Configs:
             t = n_steps - t_ - 1
             # Sample from $\textcolor{lightgreen}{p_\theta}(x_{t-1}|x_t)$
             xt = self.model.p_sample(xt, mask, xt.new_full((n_samples,), t, dtype=torch.long))
+            xt = self.classifier_guidance_step(xt)
             if t_ % 100 == 0 or (t_ >= 900 and t_ % 25 == 0):
                 if show_img:
                     show_image(xt, f"exp/x{t}.png")
                 if n_samples > 1:
-                    prmat = xt.squeeze().cpu().numpy()
+                    prmat = xt.detach().squeeze().cpu().numpy()
                 else:
-                    prmat = xt.cpu().numpy()
+                    prmat = xt.detach().cpu().numpy()
                 if show_img:
                     show_image(xt, f"exp/x{t}.png")
                     prmat2c_to_midi_file(prmat, f"exp/x{t + 1}.mid")
@@ -165,34 +184,33 @@ class Configs:
         if not os.path.exists(output_dir):
             os.makedirs(output_dir)
         self.model.eval()
-        with torch.no_grad():
-            if not init_cond:
-                x0 = self.sample(n_samples, show_img=show_img).squeeze(1)
-                if show_img:
-                    show_image(x0, os.path.join(output_dir, "x0.png"))
-                if n_samples > 1:
-                    prmat = x0.squeeze().cpu().numpy()
-                else:
-                    prmat = x0.cpu().numpy()
-                output_stamp = f"ddpm_prmat2c_[uncond]_{datetime.now().strftime('%y-%m-%d_%H%M%S')}"
-                np.save(os.path.join(output_dir, f"{output_stamp}.npy"), prmat)
-                return x0
+        if not init_cond:
+            x0 = self.sample(n_samples, show_img=show_img).squeeze(1)
+            if show_img:
+                show_image(x0, os.path.join(output_dir, "x0.png"))
+            if n_samples > 1:
+                prmat = x0.squeeze().cpu().numpy()
             else:
-                song_fn, x_init, _ = choose_song_from_val_dl()
-                x0 = self.sample(
-                    n_samples, init_cond=x_init, init_step=init_step, show_img=show_img
-                )
-                if show_img:
-                    show_image(x0, os.path.join(output_dir, "x0.png"))
-                if n_samples > 1:
-                    prmat = x0.squeeze().cpu().numpy()
-                else:
-                    prmat = x0.cpu().numpy()
-                output_stamp = f"ddpm_prmat2c_init_[{song_fn}]_{datetime.now().strftime('%y-%m-%d_%H%M%S')}"
-                prmat2c_to_midi_file(
-                    prmat, os.path.join(output_dir, f"{output_stamp}.mid")
-                )
-                return x0
+                prmat = x0.cpu().numpy()
+            output_stamp = f"ddpm_prmat2c_[uncond]_{datetime.now().strftime('%y-%m-%d_%H%M%S')}"
+            np.save(os.path.join(output_dir, f"{output_stamp}.npy"), prmat)
+            return x0
+        else:
+            song_fn, x_init, _ = choose_song_from_val_dl()
+            x0 = self.sample(
+                n_samples, init_cond=x_init, init_step=init_step, show_img=show_img
+            )
+            if show_img:
+                show_image(x0, os.path.join(output_dir, "x0.png"))
+            if n_samples > 1:
+                prmat = x0.squeeze().cpu().numpy()
+            else:
+                prmat = x0.cpu().numpy()
+            output_stamp = f"ddpm_prmat2c_init_[{song_fn}]_{datetime.now().strftime('%y-%m-%d_%H%M%S')}"
+            prmat2c_to_midi_file(
+                prmat, os.path.join(output_dir, f"{output_stamp}.mid")
+            )
+            return x0
 
 
 def choose_song_from_val_dl():
