@@ -26,8 +26,9 @@ def get_sample_lengths_from_src_key_padding_mask(src_key_padding_mask):
     return sample_lengths
 
 class PositionalEncoding(nn.Module):
-    def __init__(self, d_model, max_len=5000, n_dim_divide=1):
+    def __init__(self, d_model, max_len=5000, n_dim_divide=1, pe_strength=1.0):
         super(PositionalEncoding, self).__init__()
+        self.pe_strength = pe_strength
         # Positional Encodingを保持するテーブルを作成
         if d_model % n_dim_divide != 0:
             raise ValueError("dim_divide must be a divisor of d_model")
@@ -52,7 +53,7 @@ class PositionalEncoding(nn.Module):
         """
         lengths = get_sample_lengths_from_src_key_padding_mask(mask)
         for i, length in enumerate(lengths):
-            x[i, :length, :] = x[i, :length, :] + self.pe[:, :length, :].flip(dims=[1, 2]).repeat(1, 1, self.n_dim_divide)
+            x[i, :length, :] = x[i, :length, :] + self.pe[:, :length, :].flip(dims=[1, 2]).repeat(1, 1, self.n_dim_divide) * self.pe_strength
         return x
 
     def forward(self, x, mask):
@@ -61,7 +62,7 @@ class PositionalEncoding(nn.Module):
             x: Tensor, shape [batch_size, seq_len, embedding_dim]
         """
         # Positional Encodingを入力xに加算
-        x = self.reverse_pe_add(x, mask) + self.pe[:, :x.size(1), :].repeat(1, 1, self.n_dim_divide)
+        x = self.reverse_pe_add(x, mask) + self.pe[:, :x.size(1), :].repeat(1, 1, self.n_dim_divide) * self.pe_strength
         return x
 
 class TransformerEncoderModel(nn.Module):
