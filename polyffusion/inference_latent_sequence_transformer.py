@@ -85,12 +85,12 @@ class Configs:
     def classifier_guidance_step(self, xt: torch.Tensor):
         shape = xt.shape
         xt_input = xt.reshape(-1, shape[-1]).clone().detach()
-        # xt_input = torch.ones_like(xt_input)  # 試しに新しいテンソルを作って流してみたが，変わらず
-        xt_input.requires_grad_()
-        pitch, dur = self.guide_model.decoder(xt_input, True, None, None, 0.0, 0.0)
-        (pitch.mean() + dur.mean()).backward()
-        xt_grad = xt_input.grad
-        xt = xt - xt_grad.reshape(*shape)
+        with torch.set_grad_enabled(True):
+            xt_input.requires_grad_()
+            pitch, dur = self.guide_model.decoder(xt_input, True, None, None, 0.0, 0.0)
+            (pitch.mean() + dur.mean()).backward()
+            xt_grad = xt_input.grad
+            xt = xt - xt_grad.reshape(*shape)
         return xt
 
     def _sample_x0(self, xt: torch.Tensor, n_steps: int, show_img=False):
@@ -184,33 +184,34 @@ class Configs:
         if not os.path.exists(output_dir):
             os.makedirs(output_dir)
         self.model.eval()
-        if not init_cond:
-            x0 = self.sample(n_samples, show_img=show_img).squeeze(1)
-            if show_img:
-                show_image(x0, os.path.join(output_dir, "x0.png"))
-            if n_samples > 1:
-                prmat = x0.squeeze().cpu().numpy()
+        with torch.no_grad():
+            if not init_cond:
+                x0 = self.sample(n_samples, show_img=show_img).squeeze(1)
+                if show_img:
+                    show_image(x0, os.path.join(output_dir, "x0.png"))
+                if n_samples > 1:
+                    prmat = x0.squeeze().cpu().numpy()
+                else:
+                    prmat = x0.cpu().numpy()
+                output_stamp = f"ddpm_prmat2c_[uncond]_{datetime.now().strftime('%y-%m-%d_%H%M%S')}"
+                np.save(os.path.join(output_dir, f"{output_stamp}.npy"), prmat)
+                return x0
             else:
-                prmat = x0.cpu().numpy()
-            output_stamp = f"ddpm_prmat2c_[uncond]_{datetime.now().strftime('%y-%m-%d_%H%M%S')}"
-            np.save(os.path.join(output_dir, f"{output_stamp}.npy"), prmat)
-            return x0
-        else:
-            song_fn, x_init, _ = choose_song_from_val_dl()
-            x0 = self.sample(
-                n_samples, init_cond=x_init, init_step=init_step, show_img=show_img
-            )
-            if show_img:
-                show_image(x0, os.path.join(output_dir, "x0.png"))
-            if n_samples > 1:
-                prmat = x0.squeeze().cpu().numpy()
-            else:
-                prmat = x0.cpu().numpy()
-            output_stamp = f"ddpm_prmat2c_init_[{song_fn}]_{datetime.now().strftime('%y-%m-%d_%H%M%S')}"
-            prmat2c_to_midi_file(
-                prmat, os.path.join(output_dir, f"{output_stamp}.mid")
-            )
-            return x0
+                song_fn, x_init, _ = choose_song_from_val_dl()
+                x0 = self.sample(
+                    n_samples, init_cond=x_init, init_step=init_step, show_img=show_img
+                )
+                if show_img:
+                    show_image(x0, os.path.join(output_dir, "x0.png"))
+                if n_samples > 1:
+                    prmat = x0.squeeze().cpu().numpy()
+                else:
+                    prmat = x0.cpu().numpy()
+                output_stamp = f"ddpm_prmat2c_init_[{song_fn}]_{datetime.now().strftime('%y-%m-%d_%H%M%S')}"
+                prmat2c_to_midi_file(
+                    prmat, os.path.join(output_dir, f"{output_stamp}.mid")
+                )
+                return x0
 
 
 def choose_song_from_val_dl():
