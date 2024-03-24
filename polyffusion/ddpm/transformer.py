@@ -66,9 +66,9 @@ class PositionalEncoding(nn.Module):
         return x
 
 class TransformerEncoderModel(nn.Module):
-    def __init__(self, input_dim, hidden_dim, num_layers, nhead, max_len=512):
+    def __init__(self, input_dim, hidden_dim, num_layers, nhead, max_len=512, pe_n_dim_divide=1, pe_strength=1.0):
         super(TransformerEncoderModel, self).__init__()
-        self.positional_encoding = PositionalEncoding(input_dim, max_len)
+        self.positional_encoding = PositionalEncoding(input_dim, max_len, n_dim_divide=pe_n_dim_divide, pe_strength=pe_strength)
         self.time_embedding = TimeEmbedding(input_dim)
         self.transformer_encoder = nn.TransformerEncoder(
             nn.TransformerEncoderLayer(d_model=input_dim, nhead=nhead, dim_feedforward=hidden_dim, batch_first=True),
