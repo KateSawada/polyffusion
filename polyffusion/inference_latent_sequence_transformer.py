@@ -4,6 +4,7 @@ from argparse import ArgumentParser
 from datetime import datetime
 from os.path import join
 from pathlib import Path
+import uuid
 
 import torch
 from omegaconf import OmegaConf
@@ -176,7 +177,7 @@ class Configs:
                     prmat = x0.squeeze().cpu().numpy()
                 else:
                     prmat = x0.cpu().numpy()
-                output_stamp = f"ddpm_prmat2c_[uncond]_{datetime.now().strftime('%y-%m-%d_%H%M%S')}"
+                output_stamp = f"ddpm_prmat2c_[uncond]_{datetime.now().strftime('%y-%m-%d_%H%M%S')}-{uuid.uuid1()}"
                 np.save(os.path.join(output_dir, f"{output_stamp}.npy"), prmat)
                 return x0
             else:
@@ -190,7 +191,7 @@ class Configs:
                     prmat = x0.squeeze().cpu().numpy()
                 else:
                     prmat = x0.cpu().numpy()
-                output_stamp = f"ddpm_prmat2c_init_[{song_fn}]_{datetime.now().strftime('%y-%m-%d_%H%M%S')}"
+                output_stamp = f"ddpm_prmat2c_init_[{song_fn}]_{datetime.now().strftime('%y-%m-%d_%H%M%S')}-{uuid.uuid1()}"
                 prmat2c_to_midi_file(
                     prmat, os.path.join(output_dir, f"{output_stamp}.mid")
                 )
