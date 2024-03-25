@@ -16,6 +16,8 @@ hidden_dim: 2048  # Hidden dim of Attention FeedForwardNetwork
 num_layers: 6  # number of transformer encoder layers
 nhead: 8  # MultiHead Attention head
 max_len: 256  # Max length of latent vector sequence
+pe_n_dim_divide: 2  # How many positional encoding's to divide into
+pe_strength: 0.7  # positional encoding weight
 vae:
   chpt: result/vae_0.1_0.0001/02-01_174905/chkpts/best_weights.pt
   chd_size: 256

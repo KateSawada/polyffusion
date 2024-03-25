@@ -40,6 +40,8 @@ class Configs:
             num_layers=params.num_layers,
             nhead=params.nhead,
             max_len=params.max_len,
+            pe_n_dim_divide=params.pe_n_dim_divide,
+            pe_strength=params.pe_strength,
         ).to(self.device)
 
         # Create [DDPM class](index.html)

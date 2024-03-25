@@ -5,9 +5,30 @@ import math
 
 from ddpm.unet import TimeEmbedding
 
+def get_sample_lengths_from_src_key_padding_mask(src_key_padding_mask):
+    """
+    PyTorchのsrc_key_padding_maskからバッチ内のサンプルの長さのリストを取得する関数
+
+    Args:
+        src_key_padding_mask (torch.Tensor): shape=(batch_size, src_len) PAD = 1, NOT PAD = 0
+
+    Returns:
+        sample_lengths (list): list of each sample length
+    """
+    batch_size, src_len = src_key_padding_mask.size()
+    sample_lengths = []
+
+    for batch_idx in range(batch_size):
+        sample_mask = src_key_padding_mask[batch_idx]
+        sample_length = (sample_mask == 0).sum().item()
+        sample_lengths.append(sample_length)
+
+    return sample_lengths
+
 class PositionalEncoding(nn.Module):
-    def __init__(self, d_model, max_len=5000, n_dim_divide=2):
+    def __init__(self, d_model, max_len=5000, n_dim_divide=1, pe_strength=1.0):
         super(PositionalEncoding, self).__init__()
+        self.pe_strength = pe_strength
         # Positional Encodingを保持するテーブルを作成
         if d_model % n_dim_divide != 0:
             raise ValueError("dim_divide must be a divisor of d_model")
@@ -24,19 +45,30 @@ class PositionalEncoding(nn.Module):
         # 勾配計算を無効にして、値が更新されないようにする
         self.register_buffer('pe', pe)
 
-    def forward(self, x):
+    def reverse_pe_add(self, x, mask):
+        """
+        Args:
+            x: Tensor, shape [batch_size, seq_len, embedding_dim]
+            mask: Tensor, shape [batch_size, seq_len]
+        """
+        lengths = get_sample_lengths_from_src_key_padding_mask(mask)
+        for i, length in enumerate(lengths):
+            x[i, :length, :] = x[i, :length, :] + self.pe[:, :length, :].flip(dims=[1, 2]).repeat(1, 1, self.n_dim_divide) * self.pe_strength
+        return x
+
+    def forward(self, x, mask):
         """
         Args:
             x: Tensor, shape [batch_size, seq_len, embedding_dim]
         """
         # Positional Encodingを入力xに加算
-        x = x + self.pe[:, :x.size(1), :].flip(dims=[1]).repeat(1, 1, self.n_dim_divide) + self.pe[:, :x.size(1), :].repeat(1, 1, self.n_dim_divide)
+        x = self.reverse_pe_add(x, mask) + self.pe[:, :x.size(1), :].repeat(1, 1, self.n_dim_divide) * self.pe_strength
         return x
 
 class TransformerEncoderModel(nn.Module):
-    def __init__(self, input_dim, hidden_dim, num_layers, nhead, max_len=512):
+    def __init__(self, input_dim, hidden_dim, num_layers, nhead, max_len=512, pe_n_dim_divide=1, pe_strength=1.0):
         super(TransformerEncoderModel, self).__init__()
-        self.positional_encoding = PositionalEncoding(input_dim, max_len)
+        self.positional_encoding = PositionalEncoding(input_dim, max_len, n_dim_divide=pe_n_dim_divide, pe_strength=pe_strength)
         self.time_embedding = TimeEmbedding(input_dim)
         self.transformer_encoder = nn.TransformerEncoder(
             nn.TransformerEncoderLayer(d_model=input_dim, nhead=nhead, dim_feedforward=hidden_dim, batch_first=True),
@@ -48,14 +80,14 @@ class TransformerEncoderModel(nn.Module):
 
         Args:
             x (torch.Tensor): shape=(batch, 1, sequence_length, dim)
-            mask (torch.Tensor): shape=(batch, sequence_length)
+            mask (torch.Tensor): shape=(batch, sequence_length), mask for PAD token or value
             t (torch.Tensor): shape=(batch)
 
         Returns:
             torch.Tensor: output tensor, shape=(batch, 1, sequence_length, dim)
         """
         x = x.squeeze(1)
-        src = self.positional_encoding(x)
+        src = self.positional_encoding(x, mask)
         time_embedding = self.time_embedding(t).unsqueeze(1)
         src = src + time_embedding
         output = self.transformer_encoder(src, src_key_padding_mask=~mask.bool())
@@ -64,3 +96,16 @@ class TransformerEncoderModel(nn.Module):
         output = torch.where(mask.unsqueeze(-1).bool(), output, x)
 
         return output.unsqueeze(1)
+
+
+if __name__ == "__main__":
+    model = TransformerEncoderModel(512, 2048, 6, 8, 128)
+    x = torch.zeros(4, 1, 128, 512)
+    mask = torch.zeros(4, 128)
+    mask[0, 40:] = 1
+    mask[1, 30:] = 1
+    mask[2, 80:] = 1
+
+    output = model(x, mask, torch.tensor([0, 1, 2, 3]))
+
+    print(output.size())
