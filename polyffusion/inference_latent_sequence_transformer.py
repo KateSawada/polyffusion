@@ -259,7 +259,11 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
     if not os.path.exists(args.output_dir):
-        os.makedirs(args.output_dir)
+        try:
+            os.makedirs(args.output_dir)
+        except FileExistsError:
+            # avoid error ocurred when multiple processes try to create the same directory
+            pass
     params = OmegaConf.load(os.path.join(args.model_dir, "params.yaml"))
     config = Configs(params, args.model_dir, args.chkpt_name)
     for i in range(args.num_generate):
