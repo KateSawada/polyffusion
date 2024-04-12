@@ -146,7 +146,7 @@ class CustomVAECollator:
         prmat_vae_input = prmat.reshape(-1, 16, 128)
         # vaeへの入力となるchordは，(B, 4, 36)の形状を持つ必要がある
         chord_vae_input = chord.reshape(-1, 4, 36)
-        vae_output = self._encode(prmat_vae_input, chord_vae_input)  # (B*n_bars, 1, 256*2)
+        vae_output = self._encode(prmat_vae_input, chord_vae_input).detach()  # (B*n_bars, 1, 256*2)
         conditions = vae_output.reshape(len(batch), -1, vae_output.shape[-1])  # (B, n_bars, 256*2)
 
         # pad to max_sequence_length
