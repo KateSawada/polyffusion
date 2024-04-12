@@ -6,6 +6,7 @@ from tqdm import tqdm
 from pathlib import Path
 
 from torch.utils.data import Dataset
+import numpy as np
 
 from dirs import (
     POP909_DATA_DIR,
@@ -89,6 +90,86 @@ class NBarsDataSample(Dataset):
         midi_file_names = [f.name for f in directory.iterdir() if f.is_file() and f.suffix == ".mid"]
         print(f"loaded midi files:", midi_file_names)
         return cls.load_with_song_paths(midi_file_names, mid_dir_path, **kwargs)
+
+
+class FixedBarsDataSample(Dataset):
+    def __init__(self, data_samples: list[DataSample]) -> None:
+        super().__init__()
+        self.data_samples = data_samples
+        self.lgths = np.array([len(d) for d in self.data_samples], dtype=np.int64)
+        self.lgth_cumsum = np.cumsum(self.lgths)
+
+    def __len__(self):
+        return self.lgth_cumsum[-1]
+
+    def __getitem__(self, index):
+        # song_no is the smallest id that > dataset_item
+        song_no = np.where(self.lgth_cumsum > index)[0][0]
+        song_item = index - np.insert(self.lgth_cumsum, 0, 0)[song_no]
+
+        song_data = self.data_samples[song_no]
+        return song_data[song_item]
+
+    @classmethod
+    def load_with_song_paths(
+        cls, song_paths, data_dir=POP909_DATA_DIR, debug=False, **kwargs,
+    ):
+        data_samples = []
+        with tempfile.TemporaryDirectory() as temp_dir:
+            for song_path in tqdm(song_paths, desc="DataSample loading"):
+                mid_song_path = os.path.join(
+                    data_dir,
+                    song_path,
+                )
+                data_sample = DataSample(
+                    get_data_for_single_midi(
+                        mid_song_path,
+                        os.path.join(temp_dir, "chords_extracted.out")
+                    ),
+                    kwargs["n_bars"]
+                )
+                data_sample.db_pos = data_sample.db_pos[:len(data_sample.db_pos) + 1 - kwargs["n_bars"]]
+                data_samples += [
+                    data_sample
+                ]
+        return cls(data_samples)
+
+    @classmethod
+    def load_train_and_valid_sets(cls, debug=False, **kwargs,):
+        if debug:
+            split = read_dict(os.path.join(TRAIN_SPLIT_DIR, "pop909_debug32.pickle"))
+        else:
+            split = read_dict(os.path.join(TRAIN_SPLIT_DIR, SPLIT_PICKLE))
+        split = list(split)
+        split[0] = list(map(lambda x: add_filename_suffix(x, "_flatten"), split[0]))
+        split[1] = list(map(lambda x: add_filename_suffix(x, "_flatten"), split[1]))
+        split[0] = list(map(lambda x: replace_extension(x, ".mid"), split[0]))
+        split[1] = list(map(lambda x: replace_extension(x, ".mid"), split[1]))
+
+        print("load train valid set with:", kwargs)
+        return cls.load_with_song_paths(
+            split[0], debug=debug, **kwargs
+        ), cls.load_with_song_paths(split[1], debug=debug, **kwargs)
+
+    @classmethod
+    def load_valid_sets(cls, debug=False, **kwargs,):
+        if debug:
+            split = read_dict(os.path.join(TRAIN_SPLIT_DIR, "pop909_debug32.pickle"))
+        else:
+            split = read_dict(os.path.join(TRAIN_SPLIT_DIR, SPLIT_PICKLE))
+        split = list(split)
+        split[1] = list(map(lambda x: add_filename_suffix(x, "_flatten"), split[1]))
+        split[1] = list(map(lambda x: replace_extension(x, ".mid"), split[1]))
+        print("load valid set with:", kwargs)
+        return cls.load_with_song_paths(split[1], debug=debug, **kwargs)
+
+    @classmethod
+    def load_set_with_mid_dir_path(cls, mid_dir_path, **kwargs):
+        directory = Path(mid_dir_path)
+        midi_file_names = [f.name for f in directory.iterdir() if f.is_file() and f.suffix == ".mid"]
+        print(f"loaded midi files:", midi_file_names)
+        return cls.load_with_song_paths(midi_file_names, mid_dir_path, **kwargs)
+
 
 def add_filename_suffix(filename: str, suffix: str) -> str:
     """add suffix before extension
