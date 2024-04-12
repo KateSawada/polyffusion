@@ -15,7 +15,7 @@ input_dim: 512  # dim of latent representation
 hidden_dim: 2048  # Hidden dim of Attention FeedForwardNetwork
 num_layers: 6  # number of transformer encoder layers
 nhead: 8  # MultiHead Attention head
-max_len: 256  # Max length of latent vector sequence
+max_len: 16  # Max length of latent vector sequence
 pe_n_dim_divide: 2  # How many positional encoding's to divide into
 pe_strength: 0.7  # positional encoding weight
 vae:

@@ -62,7 +62,8 @@ class PositionalEncoding(nn.Module):
             x: Tensor, shape [batch_size, seq_len, embedding_dim]
         """
         # Positional Encodingを入力xに加算
-        x = self.reverse_pe_add(x, mask) + self.pe[:, :x.size(1), :].repeat(1, 1, self.n_dim_divide) * self.pe_strength
+        # x = self.reverse_pe_add(x, mask) + self.pe[:, :x.size(1), :].repeat(1, 1, self.n_dim_divide) * self.pe_strength
+        x = self.pe[:, :x.size(1), :].repeat(1, 1, self.n_dim_divide) * self.pe_strength
         return x
 
 class TransformerEncoderModel(nn.Module):

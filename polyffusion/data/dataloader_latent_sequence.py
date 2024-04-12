@@ -5,7 +5,7 @@ from torch import nn
 from torch.utils.data import DataLoader
 import numpy as np
 
-from data.dataset_n_bars_midi import NBarsDataSample
+from data.dataset_n_bars_midi import FixedBarsDataSample
 from data.dataset import DataSampleNpz
 from utils import (
     pr_mat_pitch_shift,
@@ -19,7 +19,7 @@ from utils import (
 def get_train_val_dataloaders_n_bars(
     batch_size, num_workers=0, pin_memory=False, debug=False, n_bars=1, collate_fn:Callable=callable, **kwargs
 ):
-    train_dataset, val_dataset = NBarsDataSample.load_train_and_valid_sets(
+    train_dataset, val_dataset = FixedBarsDataSample.load_train_and_valid_sets(
         debug=debug,
         n_bars=n_bars,
         **kwargs
@@ -58,7 +58,7 @@ class CollatorWrapper:
 
 
 class CustomVAECollator:
-    def __init__(self, vae: nn.Module, is_sample: bool=True):
+    def __init__(self, vae: nn.Module, is_sample: bool=True, max_len: int=16):
         """_summary_
 
         Args:
@@ -67,6 +67,7 @@ class CustomVAECollator:
         """
         self.vae = vae
         self.is_sample = is_sample
+        self.max_len = max_len
 
     def _encode(self, prmat, chd):
         """extract latent representation from prmat and chd
@@ -92,7 +93,7 @@ class CustomVAECollator:
 
     def __call__(
             self,
-            batch: list[DataSampleNpz],
+            batch: list[tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]],
             shift: bool) -> tuple[
                 torch.Tensor,
                 list[torch.Tensor],
@@ -106,30 +107,14 @@ class CustomVAECollator:
         prmat = []
         song_fn = []
 
-        conditions = []
-
-        max_sequence_length = 0
-
-        seq_length = []
+        seq_length = [self.max_len] * len(batch)
 
         for b in batch:
             # b[0]: seg_pnotree; b[1]: seg_pnotree_y
-            b = b.get_whole_song_data()
-            seg_prmat2cs = b[0]
-            seg_pnotrees = b[1]
-            seg_chords = b[2]
-            seg_prmats = b[3]
-
-            # update max_sequence_length
-            if len(seg_prmat2cs) > max_sequence_length:
-                max_sequence_length = len(seg_prmat2cs)
-
-            seq_length.append(len(seg_prmat2cs))
-
-            prmat2cs = []
-            pnotrees = []
-            chords = []
-            prmats = []
+            seg_prmat2c = b[0]
+            seg_pnotree = b[1]
+            seg_chord = b[2]
+            seg_prmat = b[3]
 
             if shift:
                 shift_pitch = sample_shift()
@@ -137,34 +122,32 @@ class CustomVAECollator:
                 shift_pitch = 0
 
             # loop for each segment
-            for i in range(len(seg_prmat2cs)):
-                seg_prmat2c = pr_mat_pitch_shift(seg_prmat2cs[i].detach().cpu().numpy(), shift_pitch)
-                seg_pnotree = pianotree_pitch_shift(seg_pnotrees[i].detach().cpu().numpy(), shift_pitch)
-                seg_chord = chd_pitch_shift(onehot_to_chd(seg_chords[i].detach().cpu().numpy()).astype(int), shift_pitch)
-                seg_prmat = pr_mat_pitch_shift(seg_prmats[i].detach().cpu().numpy(), shift_pitch)
+            seg_prmat2c = pr_mat_pitch_shift(seg_prmat2c, shift_pitch)
+            seg_pnotree = pianotree_pitch_shift(seg_pnotree, shift_pitch)
+            seg_chord = chd_pitch_shift(seg_chord, shift_pitch)
+            seg_prmat = pr_mat_pitch_shift(seg_prmat, shift_pitch)
 
-                seg_chord = chd_to_onehot(seg_chord)
+            seg_chord = chd_to_onehot(seg_chord)
 
-                prmat2cs.append(seg_prmat2c)
-                pnotrees.append(seg_pnotree)
-                chords.append(seg_chord)
-                prmats.append(seg_prmat)
-
-            # encode one song
-            prmat2cs = torch.Tensor(np.array(prmat2cs)).float()
-            pnotrees = torch.Tensor(np.array(pnotrees)).long()
-            chords = torch.Tensor(np.array(chords)).float()
-            prmats = torch.Tensor(np.array(prmats)).float()
-
-            conditions.append(self._encode(prmats, chords))
-
-            prmat2c.append(prmat2cs)
-            pnotree.append(pnotrees)
-            chord.append(chords)
-            prmat.append(prmats)
+            prmat2c.append(seg_prmat2c)
+            pnotree.append(seg_pnotree)
+            chord.append(seg_chord)
+            prmat.append(seg_prmat)
 
             if len(b) > 4:
                 song_fn.append(b[4])
+
+        # encode one song
+        prmat2c = torch.Tensor(np.array(prmat2c)).float()
+        pnotree = torch.Tensor(np.array(pnotree)).long()
+        chord = torch.Tensor(np.array(chord)).float()
+        prmat = torch.Tensor(np.array(prmat)).float()
+        # vaeへの入力となるprmatは，(B, 16, 128)の形状を持つ必要がある
+        prmat_vae_input = prmat.reshape(-1, 16, 128)
+        # vaeへの入力となるchordは，(B, 4, 36)の形状を持つ必要がある
+        chord_vae_input = chord.reshape(-1, 4, 36)
+        vae_output = self._encode(prmat_vae_input, chord_vae_input)  # (B*n_bars, 1, 256*2)
+        conditions = vae_output.reshape(len(batch), -1, vae_output.shape[-1])  # (B, n_bars, 256*2)
 
         # pad to max_sequence_length
         conditions, mask = pad_and_create_mask(conditions)

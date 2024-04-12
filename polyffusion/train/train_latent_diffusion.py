@@ -39,7 +39,7 @@ class LatentDiffusion_TrainConfig(TrainConfig):
         # Create dataloader
         vae = load_model(params.vae.chd_size, params.vae.txt_size, params.vae.num_channel, params.vae.n_bars, params.vae.chpt)
         collate_fn = CustomVAECollator(vae, params.vae.is_sample)
-        self.train_dl, self.val_dl = get_train_val_dataloaders_n_bars(params.batch_size, num_workers=params.num_workers, pin_memory=params.pin_memory, collate_fn=collate_fn, debug=params.debug)
+        self.train_dl, self.val_dl = get_train_val_dataloaders_n_bars(params.batch_size, n_bars=params.max_len, num_workers=params.num_workers, pin_memory=params.pin_memory, collate_fn=collate_fn, debug=params.debug)
 
         # Create optimizer
         self.optimizer = torch.optim.Adam(
