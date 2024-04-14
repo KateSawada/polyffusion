@@ -151,6 +151,7 @@ class CustomVAECollator:
 
         # pad to max_sequence_length
         conditions, mask = pad_and_create_mask(conditions)
+        conditions = conditions.unsqueeze(1)
 
         if len(song_fn) > 0:
             return conditions, mask, seq_length, prmat2c, pnotree, chord, prmat, song_fn

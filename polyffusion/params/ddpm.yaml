@@ -10,7 +10,7 @@ beta: 0.1
 weights:
 - 1
 - 0.5
-image_channels: 2
+image_channels: 1
 image_size_h: 128
 image_size_w: 128
 n_channels: 64
@@ -25,3 +25,12 @@ is_attention:
 - false
 - true
 n_steps: 1000
+
+vae:
+  chpt: result/vae_0.1_0.0001/02-01_174905/chkpts/best_weights.pt
+  chd_size: 256
+  txt_size: 256
+  num_channel: 10
+  n_bars: 1
+  is_sample: false
+debug: true

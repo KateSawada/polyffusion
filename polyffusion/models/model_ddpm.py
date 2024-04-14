@@ -33,5 +33,5 @@ class Polyffusion_DDPM(nn.Module):
         """
         z_y is the stuff the diffusion model needs to learn
         """
-        prmat2c, pnotree, chord, prmat = batch
-        return {"loss": self.ddpm.loss(prmat2c)}
+        conditions, mask, seq_length, prmat2c, pnotree, chord, prmat = batch
+        return {"loss": self.ddpm.loss(conditions)}
