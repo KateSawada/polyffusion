@@ -11,7 +11,7 @@ weights:
 - 1
 - 0.5
 image_channels: 1
-image_size_h: 128  # time
+image_size_h: 8  # time
 image_size_w: 128  # pitch
 n_channels: 64
 channel_multipliers:

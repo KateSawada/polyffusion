@@ -37,7 +37,7 @@ class DDPM_TrainConfig(TrainConfig):
         # Create dataloader
         vae = load_model(params.vae.chd_size, params.vae.txt_size, params.vae.num_channel, params.vae.n_bars, params.vae.chpt)
         collate_fn = CustomVAECollator(vae, params.vae.is_sample)
-        self.train_dl, self.val_dl = get_train_val_dataloaders_n_bars(params.batch_size, n_bars=params.image_size_h // 16, num_workers=params.num_workers, pin_memory=params.pin_memory, collate_fn=collate_fn, debug=params.debug)
+        self.train_dl, self.val_dl = get_train_val_dataloaders_n_bars(params.batch_size, n_bars=params.image_size_h, num_workers=params.num_workers, pin_memory=params.pin_memory, collate_fn=collate_fn, debug=params.debug)
         # if data_dir is None:
         #     self.train_dl, self.val_dl = get_train_val_dataloaders(
         #         params.batch_size, params.num_workers, params.pin_memory
