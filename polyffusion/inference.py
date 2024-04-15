@@ -168,7 +168,7 @@ class Configs:
                 if n_samples > 1:
                     prmat = x0.squeeze().cpu().numpy()
                 else:
-                    prmat = x0.cpu().numpy()
+                    prmat = x0.cpu().squeeze(1).numpy()
                 output_stamp = f"ddpm_prmat2c_[uncond]_{datetime.now().strftime('%y-%m-%d_%H%M%S')}"
                 np.save(os.path.join(output_dir, f"{output_stamp}.npy"), prmat)
                 return x0
