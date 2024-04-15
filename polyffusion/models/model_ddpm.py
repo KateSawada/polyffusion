@@ -20,7 +20,11 @@ class Polyffusion_DDPM(nn.Module):
     def load_trained(cls, ddpm, chkpt_fpath, params, max_simu_note=20):
         model = cls(ddpm, params, max_simu_note)
         trained_leaner = torch.load(chkpt_fpath)
-        model.load_state_dict(trained_leaner["model"])
+        new_state_dict = {}
+        for key, value in trained_leaner["state_dict"].items():
+            new_key = key.replace('model.', '').replace("eps_", "eps_model.")
+            new_state_dict[new_key] = value
+        model.load_state_dict(new_state_dict)
         return model
 
     def p_sample(self, xt: torch.Tensor, t: torch.Tensor):

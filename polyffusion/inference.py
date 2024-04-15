@@ -7,6 +7,7 @@ from os.path import join
 import torch
 from omegaconf import OmegaConf
 from tqdm import tqdm
+import numpy as np
 
 from data.dataset import DataSampleNpz
 from ddpm import DenoiseDiffusion
@@ -40,8 +41,7 @@ class Configs:
         self.diffusion = DenoiseDiffusion(
             eps_model=self.eps_model,
             n_steps=params.n_steps,
-            device=self.device,
-        )
+        ).to(self.device)
 
         self.model = Polyffusion_DDPM.load_trained(
             self.diffusion, os.path.join(model_dir, "chkpts", chkpt_name), params
@@ -56,14 +56,14 @@ class Configs:
         # $\beta_t$
         self.beta = self.diffusion.beta
         # $\alpha_t$
-        self.alpha = self.diffusion.alpha
+        self.alpha = self.diffusion.alpha.to(self.device)
         # $\bar\alpha_t$
-        self.alpha_bar = self.diffusion.alpha_bar
+        self.alpha_bar = self.diffusion.alpha_bar.to(self.device)
         # $\bar\alpha_{t-1}$
-        alpha_bar_tm1 = torch.cat([self.alpha_bar.new_ones((1,)), self.alpha_bar[:-1]])
+        alpha_bar_tm1 = torch.cat([self.alpha_bar.new_ones((1,)), self.alpha_bar[:-1]]).to(self.device)
 
         # $\tilde\beta_t$
-        self.beta_tilde = self.beta * (1 - alpha_bar_tm1) / (1 - self.alpha_bar)
+        self.beta_tilde = self.beta * (1 - alpha_bar_tm1) / (1 - self.alpha_bar).to(self.device)
         # $$\frac{\sqrt{\bar\alpha_{t-1}}\beta_t}{1 - \bar\alpha_t}$$
         self.mu_tilde_coef1 = self.beta * (alpha_bar_tm1**0.5) / (1 - self.alpha_bar)
         # $$\frac{\sqrt{\alpha_t}(1 - \bar\alpha_{t-1}}{1-\bar\alpha_t}$$
@@ -170,9 +170,7 @@ class Configs:
                 else:
                     prmat = x0.cpu().numpy()
                 output_stamp = f"ddpm_prmat2c_[uncond]_{datetime.now().strftime('%y-%m-%d_%H%M%S')}"
-                prmat2c_to_midi_file(
-                    prmat, os.path.join(output_dir, f"{output_stamp}.mid")
-                )
+                np.save(os.path.join(output_dir, f"{output_stamp}.npy"), prmat)
                 return x0
             else:
                 song_fn, x_init, _ = choose_song_from_val_dl()
@@ -186,9 +184,8 @@ class Configs:
                 else:
                     prmat = x0.cpu().numpy()
                 output_stamp = f"ddpm_prmat2c_init_[{song_fn}]_{datetime.now().strftime('%y-%m-%d_%H%M%S')}"
-                prmat2c_to_midi_file(
-                    prmat, os.path.join(output_dir, f"{output_stamp}.mid")
-                )
+                output_stamp = f"ddpm_prmat2c_[uncond]_{datetime.now().strftime('%y-%m-%d_%H%M%S')}"
+                np.save(os.path.join(output_dir, f"{output_stamp}.npy"), prmat)
                 return x0
 
 
